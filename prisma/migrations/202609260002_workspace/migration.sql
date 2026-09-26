@@ -1,0 +1,2 @@
+ALTER TABLE "User" ADD COLUMN "osSettings" JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE "User" ADD COLUMN "briefingCompleted" BOOLEAN NOT NULL DEFAULT false;
