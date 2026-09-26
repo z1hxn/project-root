@@ -40,7 +40,7 @@ export function AppWindow({
   const [dragging, setDragging] = useState(false);
   const [snapPreview, setSnapPreview] = useState<'left' | 'right' | 'top' | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  const { settings, profile, fileLocation } = useWorkspace();
+  const { settings, profile, fileLocation, editorDocument } = useWorkspace();
   const app = applications.find((a) => a.id === state.id)!;
   useEffect(() => {
     const fit = () => {
@@ -194,13 +194,15 @@ export function AppWindow({
             <AppIcon id={state.id} size={17} />
           </button>
           <span className="window-caption">
-            {state.id === 'terminal'
-              ? '~ : bash — Konsole'
-              : state.id === 'files'
-                ? `${fileLocation === homePath(profile.username) ? '홈' : basename(fileLocation) || '루트'} — Dolphin`
-                : state.id === 'settings'
-                  ? '시스템 설정'
-                  : app.name}
+            {state.id === 'editor'
+              ? `${editorDocument.text !== editorDocument.saved ? '● ' : ''}${editorDocument.path ? basename(editorDocument.path) : '제목 없음'} — KWrite`
+              : state.id === 'terminal'
+                ? '~ : bash — Konsole'
+                : state.id === 'files'
+                  ? `${fileLocation === homePath(profile.username) ? '홈' : basename(fileLocation) || '루트'} — Dolphin`
+                  : state.id === 'settings'
+                    ? '시스템 설정'
+                    : app.name}
             {state.above && <Pin size={11} />}
           </span>
           <div className="kwin-controls">

@@ -66,6 +66,8 @@ import {
   pasteFiles,
   moveToTrash,
   trashPath,
+  renameFile,
+  repairSystemDirectories,
 } from '../src/game/filesystem';
 import { osSettingsSchema } from '../src/lib/os-settings';
 test('terminal writes and moves files through the shared VFS without host execution', () => {
@@ -115,4 +117,109 @@ test('window snapping, resizing and virtual desktops preserve restore geometry',
   assert.equal(state[0].desktop, 1);
   state = windowReducer(state, { type: 'resize', id: 'root', width: 850, height: 600 });
   assert.equal(state[0].width, 850);
+});
+
+test('essential directories reject delete, rename and cut atomically, while personal files remain mutable', () => {
+  const files = initialFiles('tester');
+  const home = homePath('tester');
+  for (const path of [
+    '/',
+    '/home',
+    home,
+    home + '/Downloads',
+    home + '/Documents',
+    home + '/.local/share/Trash/files',
+  ]) {
+    assert.throws(() => moveToTrash(files, [path], 'tester'), /기본 폴더/);
+    assert.throws(() => renameFile(files, path, home + '/renamed'), /기본 폴더/);
+    assert.throws(() => pasteFiles(files, [path], home + '/Desktop', true), /기본 폴더/);
+  }
+  const broken = files.filter((f) => f.path !== home + '/Downloads');
+  assert.ok(
+    repairSystemDirectories(broken, 'tester').some(
+      (f) => f.path === home + '/Downloads' && f.kind === 'directory',
+    ),
+  );
+  assert.ok(
+    moveToTrash(files, [home + '/Documents/Welcome.txt'], 'tester').some(
+      (f) => f.path === trashPath('tester') + '/Welcome.txt',
+    ),
+  );
+});
+
+import {
+  searchWorld,
+  OFFICIAL_URL,
+  PROFILE_URL,
+  THREAD_URL,
+  canonicalWorldUrl,
+} from '../src/game/world';
+import { advanceProgress, readProgress } from '../src/game/missions';
+test('Index matches Korean and English aliases and uses exact virtual hosts', () => {
+  for (const query of [
+    '프로젝트루트',
+    '프로젝트 루트',
+    'PROJECT ROOT',
+    'projectroot',
+    'project root 공식사이트',
+    'projectroot.kro.kr',
+  ])
+    assert.equal(searchWorld(query)[0]?.url, OFFICIAL_URL);
+  assert.equal(searchWorld('아무 결과도 없는 검색어').length, 0);
+  assert.equal(searchWorld('윤서하').length, 2);
+  assert.equal(canonicalWorldUrl('http://www.projectroot.kro.kr/?from=index'), OFFICIAL_URL);
+  assert.equal(canonicalWorldUrl('https://projectroot.kro.kr.evil.test'), null);
+  assert.equal(canonicalWorldUrl('https://evil.test/?next=projectroot.kro.kr'), null);
+});
+test('missions assign once, verify visited evidence, and retain history through rollback', () => {
+  let progress = readProgress({});
+  assert.throws(() => advanceProgress(progress, { type: 'rollback', stage: 1 }), /아직 배정/);
+  let result = advanceProgress(progress, { type: 'visit', url: OFFICIAL_URL });
+  assert.equal(result.assigned, true);
+  progress = result.progress;
+  assert.equal(advanceProgress(progress, { type: 'visit', url: OFFICIAL_URL }).assigned, false);
+  assert.throws(
+    () =>
+      advanceProgress(progress, {
+        type: 'report',
+        handle: 'seoha_y',
+        sources: [PROFILE_URL, THREAD_URL],
+      }),
+    /직접 확인/,
+  );
+  for (const url of [PROFILE_URL, THREAD_URL])
+    progress = advanceProgress(progress, { type: 'visit', url }).progress;
+  assert.throws(
+    () =>
+      advanceProgress(progress, {
+        type: 'report',
+        handle: 'wrong',
+        sources: [PROFILE_URL, THREAD_URL],
+      }),
+    /계정/,
+  );
+  result = advanceProgress(progress, {
+    type: 'report',
+    handle: '@seoha_y',
+    sources: [PROFILE_URL, THREAD_URL],
+  });
+  assert.equal(result.completed, true);
+  progress = result.progress;
+  assert.equal(progress.stage, 2);
+  progress = advanceProgress(progress, { type: 'rollback', stage: 0 }).progress;
+  assert.equal(progress.stage, 0);
+  assert.equal(progress.highestStage, 2);
+  assert.deepEqual(progress.visited, []);
+  progress = advanceProgress(progress, { type: 'rollback', stage: 1 }).progress;
+  assert.equal(progress.stage, 1);
+  assert.deepEqual(progress.visited, [OFFICIAL_URL]);
+  assert.throws(
+    () =>
+      advanceProgress(progress, {
+        type: 'report',
+        handle: 'seoha_y',
+        sources: [PROFILE_URL, THREAD_URL],
+      }),
+    /직접 확인/,
+  );
 });

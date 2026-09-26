@@ -1,5 +1,6 @@
 'use client';
 import { useCallback, useEffect, useReducer, useRef, useState, type CSSProperties } from 'react';
+import { investigationMission, type GameProgress, type GameEvent } from '@/game/missions';
 import { useRouter } from 'next/navigation';
 import { playNotification } from '@/lib/sound';
 import {
@@ -40,7 +41,7 @@ import { AppIcon, PlasmaLogo } from './AppIcon';
 import { DesktopSurface } from './DesktopSurface';
 import { AppContent } from '@/apps/AppContent';
 import { WorkspaceContext, type SessionAction } from '@/features/workspace/context';
-import { homePath, initialFiles, type GameFile } from '@/game/filesystem';
+import { homePath, initialFiles, repairSystemDirectories, type GameFile } from '@/game/filesystem';
 import { wallpapers, type OSSettings } from '@/lib/os-settings';
 import { api } from '@/lib/api';
 import { NativeDialog } from '@/components/ui/Native';
@@ -128,24 +129,55 @@ export function Desktop({
   const [runnerQuery, setRunnerQuery] = useState('');
   const [tray, setTray] = useState<string | null>(null);
   const [trayVolume, setTrayVolume] = useState(settings.volume);
-  const [notifications, setNotifications] = useState<{ id: number; text: string; time: string }[]>(
-    [],
-  );
-  const [toast, setToast] = useState<string | null>(null);
+  const [notifications, setNotifications] = useState<
+    { id: number; text: string; time: string; source: AppId | 'plasma' }[]
+  >([]);
+  const [toast, setToast] = useState<{ message: string; source: AppId | 'plasma' } | null>(null);
   const [sessionDialog, setSessionDialog] = useState<SessionAction | null>(null);
-  const [power, setPower] = useState<'on' | 'locked' | 'off'>('on');
+  const [power, setPower] = useState<'on' | 'locked'>('on');
   const [password, setPassword] = useState('');
   const [sessionError, setSessionError] = useState('');
   const [busy, setBusy] = useState(false);
   const [settingsPage, setSettingsPage] = useState('quick');
   const [files, setFiles] = useState<GameFile[]>(() => initialFiles(profile.username));
   const [filesLoaded, setFilesLoaded] = useState(false);
+  const [editorDocument, setEditorDocument] = useState<{
+    path: string | null;
+    text: string;
+    saved: string;
+  }>({ path: null, text: '', saved: '' });
+  const [editorRequest, setEditorRequest] = useState<{ path: string; id: number } | null>(null);
+  useEffect(() => {
+    try {
+      const draft = JSON.parse(localStorage.getItem(`root-editor:${profile.username}`) || 'null');
+      if (
+        draft &&
+        (draft.path === null || typeof draft.path === 'string') &&
+        typeof draft.text === 'string' &&
+        typeof draft.saved === 'string'
+      )
+        setEditorDocument(draft);
+    } catch {}
+  }, [profile.username]);
+  useEffect(() => {
+    if (filesLoaded)
+      try {
+        localStorage.setItem(`root-editor:${profile.username}`, JSON.stringify(editorDocument));
+      } catch {
+        setToast({ message: '편집기 초안을 저장할 공간이 부족합니다.', source: 'editor' });
+      }
+  }, [editorDocument, filesLoaded, profile.username]);
+  function openText(path: string) {
+    setEditorRequest({ path, id: Date.now() });
+    openApp('editor');
+  }
+
   const [fileLocation, setFileLocation] = useState(homePath(profile.username));
   const [clipboard, setClipboard] = useState<{ paths: string[]; cut: boolean } | null>(null);
   const [panelMenu, setPanelMenu] = useState(false);
   const [overview, setOverview] = useState(false);
-  const latest = useRef({ settings, onProfile });
-  latest.current = { settings, onProfile };
+  const latest = useRef({ settings, onProfile, profile });
+  latest.current = { settings, onProfile, profile };
   const visibleWindows = windows.filter((w) => !w.minimized && w.desktop === desktop);
   const active = visibleWindows.reduce<(typeof windows)[number] | null>(
     (a, w) => (!a || w.z + (w.above ? 10000 : 0) > a.z + (a.above ? 10000 : 0) ? w : a),
@@ -153,9 +185,6 @@ export function Desktop({
   );
   useEffect(() => {
     const timer = setInterval(() => setClock(new Date()), 1000);
-    try {
-      if (sessionStorage.getItem(`root-power:${profile.username}`) === 'off') setPower('off');
-    } catch {}
     return () => clearInterval(timer);
   }, [profile.username]);
   useEffect(() => {
@@ -173,7 +202,7 @@ export function Desktop({
             (f.content === undefined || typeof f.content === 'string'),
         )
       )
-        setFiles(saved);
+        setFiles(repairSystemDirectories(saved, profile.username));
     } catch {}
     setFilesLoaded(true);
   }, [profile.username]);
@@ -182,7 +211,10 @@ export function Desktop({
       try {
         localStorage.setItem(`root-files-v2:${profile.username}`, JSON.stringify(files));
       } catch {
-        setToast('파일을 이 브라우저에 저장하지 못했습니다. 저장 공간을 확인하세요.');
+        setToast({
+          message: '파일을 이 브라우저에 저장하지 못했습니다. 저장 공간을 확인하세요.',
+          source: 'files',
+        });
       }
   }, [files, filesLoaded, profile.username]);
   useEffect(() => {
@@ -199,22 +231,68 @@ export function Desktop({
           dispatch({ type: 'desktop', id: w.id, desktop: 0 });
     }
   }, [settings.virtualDesktops, desktop, windows]);
-  const notify = useCallback((message: string) => {
+  const notify = useCallback((message: string, source: AppId | 'plasma' = 'plasma') => {
     setNotifications((n) =>
       [
         {
           id: Date.now(),
           text: message,
+          source,
           time: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
         },
         ...n,
       ].slice(0, 50),
     );
     if (!latest.current.settings.doNotDisturb) {
-      setToast(latest.current.settings.notificationPreviews ? message : '새 알림이 있습니다.');
+      setToast({
+        message: latest.current.settings.notificationPreviews ? message : '새 알림이 있습니다.',
+        source,
+      });
       playNotification(latest.current.settings);
     }
   }, []);
+  const gameQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const sendGameEvent = useCallback(
+    (event: GameEvent): Promise<void> => {
+      const request = gameQueue.current
+        .catch(() => {})
+        .then(async () => {
+          const result = await api<{
+            progress: GameProgress;
+            assigned: boolean;
+            completed: boolean;
+          }>('/api/game/events', 'POST', event);
+          latest.current.onProfile({ ...latest.current.profile, gameProgress: result.progress });
+          if (result.assigned)
+            notify(
+              `두 번째 미션이 배정되었습니다: ${investigationMission.title}. Project Root에서 조사 목표를 확인하세요.`,
+              'root',
+            );
+          if (event.type === 'rollback')
+            notify(
+              `${event.stage + 1}번째 임무로 돌아갔습니다. 개인 파일과 메모는 유지됩니다.`,
+              'root',
+            );
+          if (result.completed)
+            notify('조사 보고서가 승인되었습니다. 두 번째 임무를 완료했습니다.', 'root');
+        });
+      gameQueue.current = request;
+      return request;
+    },
+    [notify],
+  );
+  const recordVisit = useCallback(
+    (url: string) => sendGameEvent({ type: 'visit', url }),
+    [sendGameEvent],
+  );
+  const rollbackMission = useCallback(
+    (stage: 0 | 1) => sendGameEvent({ type: 'rollback', stage }),
+    [sendGameEvent],
+  );
+  const submitReport = useCallback(
+    (handle: string, sources: string[]) => sendGameEvent({ type: 'report', handle, sources }),
+    [sendGameEvent],
+  );
   const saveSettings = useCallback(async (next: OSSettings) => {
     const updated = await api<UserProfile>('/api/settings', 'PUT', next);
     latest.current.onProfile(updated);
@@ -309,11 +387,8 @@ export function Desktop({
         setSessionDialog(null);
         onRestart();
       } else if (sessionDialog === 'shutdown') {
-        try {
-          sessionStorage.setItem(`root-power:${profile.username}`, 'off');
-        } catch {}
-        setPower('off');
-        setSessionDialog(null);
+        router.replace('/');
+        router.refresh();
       }
     } catch (e) {
       setSessionError(e instanceof Error ? e.message : '세션을 종료하지 못했습니다.');
@@ -326,7 +401,7 @@ export function Desktop({
     setBusy(true);
     setSessionError('');
     try {
-      await api('/api/auth/login', 'POST', { username: profile.username, password });
+      await api('/api/auth/unlock', 'POST', { password });
       setPassword('');
       setPower('on');
     } catch (e) {
@@ -367,27 +442,15 @@ export function Desktop({
   const runnerResults = applications.filter((a) =>
     `${a.name} ${a.subtitle} ${a.id}`.toLowerCase().includes(runnerQuery.toLowerCase()),
   );
-  if (power === 'off')
-    return (
-      <main className="powered-off">
-        <button
-          onClick={() => {
-            try {
-              sessionStorage.removeItem(`root-power:${profile.username}`);
-            } catch {}
-            onRestart();
-          }}
-        >
-          <Power size={38} />
-          <span>워크스테이션 켜기</span>
-        </button>
-        <p>전원이 꺼졌습니다.</p>
-      </main>
-    );
   return (
     <WorkspaceContext.Provider
       value={{
         profile,
+        editorDocument,
+        setEditorDocument,
+        editorRequest,
+        clearEditorRequest: () => setEditorRequest(null),
+        openText,
         onProfile,
         settings,
         saveSettings,
@@ -396,6 +459,9 @@ export function Desktop({
         files,
         setFiles,
         notify,
+        recordVisit,
+        submitReport,
+        rollbackMission,
         settingsPage,
         setSettingsPage,
         fileLocation,
@@ -617,7 +683,9 @@ export function Desktop({
             ))}
           </div>
           <div className="plasma-tasks">
-            {(['settings', 'files', 'browser', 'terminal', 'mail', 'root'] as AppId[]).map((id) => {
+            {(
+              ['settings', 'files', 'browser', 'terminal', 'mail', 'editor', 'root'] as AppId[]
+            ).map((id) => {
               const app = applications.find((a) => a.id === id)!;
               const state = windows.find((w) => w.id === id);
               return (
@@ -728,7 +796,10 @@ export function Desktop({
           </div>
         )}
         {tray && (
-          <section className={`tray-popup tray-${tray}`}>
+          <section
+            className={`tray-popup tray-panel-${tray}`}
+            aria-label={`${tray === 'volume' ? '오디오' : tray === 'network' ? '네트워크' : '시스템'} 트레이`}
+          >
             <header>
               <strong>
                 {
@@ -844,9 +915,18 @@ export function Desktop({
                   {notifications.length ? (
                     notifications.map((n) => (
                       <article key={n.id}>
-                        <AppIcon id="root" size={22} />
+                        {n.source === 'plasma' ? (
+                          <PlasmaLogo size={22} />
+                        ) : (
+                          <AppIcon id={n.source} size={22} />
+                        )}
                         <div>
-                          <small>워크스테이션 · {n.time}</small>
+                          <small>
+                            {n.source === 'plasma'
+                              ? 'Plasma'
+                              : applications.find((a) => a.id === n.source)?.name}{' '}
+                            · {n.time}
+                          </small>
                           <p>{n.text}</p>
                         </div>
                         <button
@@ -914,10 +994,18 @@ export function Desktop({
         )}
         {toast && (
           <div className="plasma-toast" role="status">
-            <AppIcon id="root" size={29} />
+            {toast.source === 'plasma' ? (
+              <PlasmaLogo size={29} />
+            ) : (
+              <AppIcon id={toast.source} size={29} />
+            )}
             <div>
-              <strong>워크스테이션</strong>
-              <p>{toast}</p>
+              <strong>
+                {toast.source === 'plasma'
+                  ? 'Plasma'
+                  : applications.find((a) => a.id === toast.source)?.name}
+              </strong>
+              <p>{toast.message}</p>
             </div>
             <button aria-label="알림 닫기" onClick={() => setToast(null)}>
               <X size={15} />
@@ -995,8 +1083,9 @@ export function Desktop({
                     : '워크스테이션을 종료할까요?'}
               </h2>
               <p>
-                저장된 파일과 설정은 유지됩니다. 열려 있는 앱의 저장하지 않은 내용은 사라질 수
-                있습니다.
+                {sessionDialog === 'shutdown'
+                  ? '계정 로그인은 유지하고 Project Root 첫 화면으로 돌아갑니다. 저장된 파일과 설정은 유지됩니다.'
+                  : '저장된 파일과 설정은 유지됩니다. 저장하지 않은 앱 내용은 사라질 수 있습니다.'}
               </p>
               {sessionError && (
                 <p role="alert" className="native-error">

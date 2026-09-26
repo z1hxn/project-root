@@ -34,6 +34,7 @@ export function initialFiles(username: string): GameFile[] {
       { id: 'terminal', name: 'Konsole' },
       { id: 'mail', name: 'KMail' },
       { id: 'settings', name: '시스템 설정' },
+      { id: 'editor', name: 'KWrite' },
     ].map((a) => ({
       path: `${home}/Desktop/${a.name}.desktop`,
       kind: 'file' as const,
@@ -107,7 +108,31 @@ export function makeDirectory(files: GameFile[], path: string): GameFile[] {
     throw Error('상위 폴더가 없습니다.');
   return [...files, { path, kind: 'directory', modified: new Date().toISOString() }];
 }
+export function isProtectedPath(path: string) {
+  return (
+    ['/', '/home', '/etc', '/tmp'].includes(path) ||
+    /^\/home\/[^/]+(?:\/(?:Desktop|Documents|Downloads|Pictures|Music|Videos|\.config|\.local(?:\/share(?:\/Trash(?:\/files)?)?)?))?$/.test(
+      path,
+    )
+  );
+}
+export function assertMutablePaths(paths: string[]) {
+  const protectedPath = paths.find(isProtectedPath);
+  if (protectedPath)
+    throw Error(
+      `“${basename(protectedPath)}”은 워크스테이션의 기본 폴더입니다. 삭제하거나 이동하거나 이름을 바꿀 수 없습니다. 폴더 안의 개인 파일은 정리할 수 있습니다.`,
+    );
+}
+export function repairSystemDirectories(files: GameFile[], username: string): GameFile[] {
+  const required = initialFiles(username).filter((f) => f.kind === 'directory');
+  return [
+    ...files.filter((f) => !required.some((dir) => dir.path === f.path && f.kind !== 'directory')),
+    ...required.filter((dir) => !files.some((f) => f.path === dir.path && f.kind === 'directory')),
+  ];
+}
 export function renameFile(files: GameFile[], path: string, target: string) {
+  assertMutablePaths([path]);
+  if (target.startsWith(path + '/')) throw Error('폴더를 자기 자신 안에 넣을 수 없습니다.');
   if (files.some((f) => f.path === target)) throw Error('같은 이름이 이미 있습니다.');
   return files.map((f) =>
     f.path === path || f.path.startsWith(path + '/')
@@ -206,6 +231,7 @@ export function runCommand(
         break;
       }
       case 'rm': {
+        assertMutablePaths([path]);
         if (!args.length || !path.startsWith(home + '/')) throw Error('Permission denied');
         const f = files.find((f) => f.path === path);
         if (!f) throw Error('No such file');
@@ -239,9 +265,11 @@ export function runCommand(
 }
 export const trashPath = (username: string) => `${homePath(username)}/.local/share/Trash/files`;
 export function moveToTrash(files: GameFile[], paths: string[], username: string) {
+  assertMutablePaths(paths);
   let next = files;
   for (const path of paths) {
-    if (!path.startsWith(homePath(username) + '/')) continue;
+    if (!path.startsWith(homePath(username) + '/'))
+      throw Error('이 위치의 항목은 삭제할 수 없습니다.');
     let target = trashPath(username) + '/' + basename(path);
     let i = 1;
     while (next.some((f) => f.path === target))
@@ -251,6 +279,9 @@ export function moveToTrash(files: GameFile[], paths: string[], username: string
   return next;
 }
 export function pasteFiles(files: GameFile[], paths: string[], destination: string, cut: boolean) {
+  if (cut) assertMutablePaths(paths);
+  if (!files.some((f) => f.path === destination && f.kind === 'directory'))
+    throw Error('대상 폴더가 없습니다.');
   let next = [...files];
   for (const path of paths) {
     const original = next.find((f) => f.path === path);

@@ -1,3 +1,4 @@
+import { readProgress } from '@/game/missions';
 import { readOSSettings } from '@/lib/os-settings';
 import { createHash, randomBytes } from 'node:crypto';
 import { cookies } from 'next/headers';
@@ -35,6 +36,7 @@ export async function destroySession() {
 }
 export function publicProfile(user: User): UserProfile {
   return {
+    gameProgress: readProgress(user.gameProgress),
     osSettings: readOSSettings(user.osSettings),
     briefingCompleted: user.briefingCompleted,
     username: user.username,

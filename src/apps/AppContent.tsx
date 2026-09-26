@@ -4,6 +4,7 @@ import { Browser } from './Browser';
 import { TerminalApp } from './Terminal';
 import { Mail } from './Mail';
 import { Files } from './Files';
+import { TextEditor } from './TextEditor';
 import { Settings } from './Settings';
 export function AppContent({ id }: { id: AppId }) {
   switch (id) {
@@ -17,6 +18,8 @@ export function AppContent({ id }: { id: AppId }) {
       return <Mail />;
     case 'files':
       return <Files />;
+    case 'editor':
+      return <TextEditor />;
     case 'settings':
       return <Settings />;
   }

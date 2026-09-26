@@ -16,10 +16,14 @@ import {
   Check,
   Play,
   ShieldCheck,
+  Compass,
+  History,
 } from 'lucide-react';
 import { useWorkspace } from '@/features/workspace/context';
 import { AppIcon, RootIcon } from '@/components/desktop/AppIcon';
 import { WorldBriefing } from '@/features/onboarding/WorldBriefing';
+import { MissionCard, MissionHistory, MissionHints, MissionRecords } from './MissionPanel';
+import { explorationMission } from '@/game/missions';
 import { api } from '@/lib/api';
 import type { UserProfile } from '@/types/user';
 const sections = [
@@ -27,10 +31,12 @@ const sections = [
   { id: 'intel', name: '조사 정보', label: 'INTEL', icon: Network },
   { id: 'accounts', name: '발견한 계정', label: 'ACCOUNTS', icon: KeyRound },
   { id: 'evidence', name: '증거 보관함', label: 'EVIDENCE', icon: Files },
+  { id: 'history', name: '임무 이력', label: 'HISTORY', icon: History },
   { id: 'hint', name: '힌트', label: 'HINT', icon: Lightbulb },
 ];
 export function ProjectRoot() {
-  const { profile, onProfile, openApp, sessionAction } = useWorkspace();
+  const { profile, onProfile, openApp, sessionAction, notify: workspaceNotify } = useWorkspace();
+  const notify = (message: string) => workspaceNotify(message, 'root');
   const [section, setSection] = useState('case');
   const [briefing, setBriefing] = useState(!profile.briefingCompleted);
   const [busy, setBusy] = useState(false);
@@ -39,6 +45,10 @@ export function ProjectRoot() {
     const updated = await api<UserProfile>('/api/profile', 'PATCH', { briefingCompleted: true });
     onProfile(updated);
     setBriefing(false);
+    if (!profile.briefingCompleted)
+      notify(
+        `Project Root · 새 임무: ${explorationMission.title}. ${explorationMission.description}`,
+      );
   }
   async function saveProfile(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -146,22 +156,7 @@ export function ProjectRoot() {
                   업무 준비 완료
                 </span>
               </div>
-              <div className="root-assignment">
-                <div className="root-assignment-header">
-                  <span>현재 배정된 사건</span>
-                  <small>CASE 001</small>
-                </div>
-                <div className="root-assignment-body">
-                  <Radio size={34} strokeWidth={1.4} />
-                  <h2>새로운 사건을 기다리고 있습니다.</h2>
-                  <p>
-                    사건이 배정되면 목표와 관련 자료가 이곳에 표시됩니다.
-                    <br />
-                    그동안 도구를 익히고 당신의 워크스테이션을 준비하세요.
-                  </p>
-                  <span>AWAITING ASSIGNMENT</span>
-                </div>
-              </div>
+              <MissionCard />
               <h3 className="root-section-title">당신의 조사 도구</h3>
               <div className="root-tools">
                 {(
@@ -191,6 +186,19 @@ export function ProjectRoot() {
                   </button>
                 ))}
               </div>
+              <aside className="root-note-tip">
+                <Lightbulb size={20} />
+                <div>
+                  <strong>Tip · 자유롭게 메모하세요</strong>
+                  <p>
+                    KWrite에서 텍스트 파일을 만들어 생각이나 발견한 내용을 아무렇게나 적어 두세요.
+                    문서나 바탕화면에 저장한 메모는 Dolphin에서 다시 열 수 있습니다.
+                  </p>
+                  <button className="root-btn" onClick={() => openApp('editor')}>
+                    텍스트 편집기 열기 <ArrowUpRight size={14} />
+                  </button>
+                </div>
+              </aside>
               <button className="root-orientation-card" onClick={() => setBriefing(true)}>
                 <BookOpen size={21} />
                 <span>
@@ -202,6 +210,10 @@ export function ProjectRoot() {
                 </span>
               </button>
             </>
+          ) : section === 'history' ? (
+            <MissionHistory />
+          ) : section === 'hint' ? (
+            <MissionHints key={profile.gameProgress.stage} />
           ) : section === 'profile' ? (
             <>
               <span className="root-overline">YOUR IDENTITY</span>
@@ -259,30 +271,7 @@ export function ProjectRoot() {
               </div>
             </>
           ) : (
-            <>
-              <span className="root-overline">{current?.label}</span>
-              <h1>{current?.name}</h1>
-              <div className="root-empty">
-                <Search size={42} strokeWidth={1} />
-                <h2>
-                  {section === 'hint'
-                    ? '첫 사건이 배정되면 안내가 제공됩니다.'
-                    : '아직 수집된 정보가 없습니다.'}
-                </h2>
-                <p>
-                  조사 중 발견한{' '}
-                  {section === 'intel'
-                    ? '인물과 도메인, 기록'
-                    : section === 'accounts'
-                      ? '게임 속 계정 정보'
-                      : section === 'evidence'
-                        ? '문서와 로그'
-                        : '단서에 따라 단계별 힌트'}
-                  가 이곳에 모입니다.
-                </p>
-                <small>AWAITING ASSIGNMENT</small>
-              </div>
-            </>
+            <MissionRecords kind={section} />
           )}
         </div>
         <footer className="root-footer">

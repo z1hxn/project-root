@@ -16,6 +16,7 @@ model User {
   wallpaper String @default("slate")
   osSettings Json @default("{}")
   briefingCompleted Boolean @default(false)
+  gameProgress Json @default("{}")
   createdAt DateTime @default(now())
   sessions Session[]
 }

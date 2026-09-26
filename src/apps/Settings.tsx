@@ -65,7 +65,15 @@ function Toggle({
   );
 }
 export function Settings() {
-  const { settings, saveSettings, settingsPage, setSettingsPage, openApp, notify } = useWorkspace();
+  const {
+    settings,
+    saveSettings,
+    settingsPage,
+    setSettingsPage,
+    openApp,
+    notify: workspaceNotify,
+  } = useWorkspace();
+  const notify = (message: string) => workspaceNotify(message, 'settings');
   const [draft, setDraft] = useState(settings);
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState(false);

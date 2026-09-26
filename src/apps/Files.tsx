@@ -43,6 +43,7 @@ import {
   writeFile,
   renameFile,
   moveToTrash,
+  assertMutablePaths,
   trashPath,
   pasteFiles,
   type GameFile,
@@ -71,12 +72,14 @@ export function Files() {
     setFiles,
     settings,
     openApp,
+    openText,
     fileLocation,
     setFileLocation,
     clipboard,
     setClipboard,
-    notify,
+    notify: workspaceNotify,
   } = useWorkspace();
+  const notify = (message: string) => workspaceNotify(message, 'files');
   const home = homePath(profile.username);
   const [path, setPath] = useState(fileLocation || home);
   const [backStack, setBackStack] = useState<string[]>([]);
@@ -95,8 +98,6 @@ export function Files() {
   const [modal, setModal] = useState<'folder' | 'text' | 'rename' | 'properties' | null>(null);
   const [name, setName] = useState('');
   const [error, setError] = useState('');
-  const [preview, setPreview] = useState<GameFile | null>(null);
-  const [editContent, setEditContent] = useState('');
   const [iconSize, setIconSize] = useState(48);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -136,10 +137,7 @@ export function Files() {
     const app = fileApp(file);
     if (app) openApp(app);
     else if (file.kind === 'directory') go(file.path);
-    else {
-      setPreview(file);
-      setEditContent(file.content || '');
-    }
+    else openText(file.path);
   }
   function select(e: React.MouseEvent, file: GameFile) {
     if (e.ctrlKey || e.metaKey)
@@ -162,13 +160,19 @@ export function Files() {
     setError('');
   }
   function remove() {
-    if (path === trashPath(profile.username)) {
-      setFiles(
-        files.filter((f) => !selected.some((p) => f.path === p || f.path.startsWith(p + '/'))),
-      );
-    } else setFiles(moveToTrash(files, selected, profile.username));
-    setSelected([]);
-    setContext(null);
+    try {
+      assertMutablePaths(selected);
+      if (path === trashPath(profile.username)) {
+        setFiles(
+          files.filter((f) => !selected.some((p) => f.path === p || f.path.startsWith(p + '/'))),
+        );
+      } else setFiles(moveToTrash(files, selected, profile.username));
+      setSelected([]);
+      setContext(null);
+    } catch (e) {
+      setContext(null);
+      setError(e instanceof Error ? e.message : '삭제할 수 없습니다.');
+    }
   }
   function paste() {
     if (!clipboard) return;
@@ -518,7 +522,9 @@ export function Files() {
                 try {
                   const paths = JSON.parse(e.dataTransfer.getData('application/x-root-files'));
                   setFiles(pasteFiles(files, paths, f.path, true));
-                } catch {}
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : '이동할 수 없습니다.');
+                }
               }}
             >
               <FileIcon file={f} size={view === 'icons' ? iconSize : 20} />
@@ -747,37 +753,6 @@ export function Files() {
               </footer>
             </form>
           )}
-        </NativeDialog>
-      )}
-      {preview && (
-        <NativeDialog
-          title={`${basename(preview.path)} — 텍스트 편집기`}
-          className="text-editor-dialog"
-          onClose={() => setPreview(null)}
-        >
-          <textarea
-            aria-label="파일 내용"
-            spellCheck={false}
-            value={editContent}
-            onChange={(e) => setEditContent(e.target.value)}
-          />
-          <footer>
-            <span>{editContent.length}자 · UTF-8</span>
-            <button
-              className="native-button"
-              onClick={() => {
-                setFiles(writeFile(files, preview.path, editContent));
-                notify(`${basename(preview.path)} 저장됨`);
-                setPreview(null);
-              }}
-            >
-              <Save size={15} />
-              저장
-            </button>
-            <button className="native-button" onClick={() => setPreview(null)}>
-              닫기
-            </button>
-          </footer>
         </NativeDialog>
       )}
     </div>

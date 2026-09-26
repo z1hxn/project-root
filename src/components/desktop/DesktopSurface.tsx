@@ -41,11 +41,14 @@ export function DesktopSurface({ onRunner }: { onRunner: () => void }) {
     setFiles,
     settings,
     openApp,
+    openText,
+    notify: workspaceNotify,
     setFileLocation,
     clipboard,
     setClipboard,
     setSettingsPage,
   } = useWorkspace();
+  const notify = (message: string) => workspaceNotify(message, 'files');
   const home = homePath(profile.username);
   const desktop = home + '/Desktop';
   const entries: GameFile[] = [
@@ -144,8 +147,9 @@ export function DesktopSurface({ onRunner }: { onRunner: () => void }) {
     }
     const app = fileApp(file);
     if (app) openApp(app);
+    else if (file.kind === 'file') openText(file.path);
     else {
-      setFileLocation(file.kind === 'directory' ? file.path : desktop);
+      setFileLocation(file.path);
       openApp('files');
     }
   }
@@ -182,8 +186,17 @@ export function DesktopSurface({ onRunner }: { onRunner: () => void }) {
     }
   }
   function remove() {
+    if (selected.some((p) => p.startsWith('$'))) {
+      notify('홈과 휴지통은 워크스테이션의 기본 폴더입니다. 삭제할 수 없습니다.');
+      setMenu(null);
+      return;
+    }
     const paths = selected.filter((p) => !p.startsWith('$'));
-    setFiles(moveToTrash(files, paths, profile.username));
+    try {
+      setFiles(moveToTrash(files, paths, profile.username));
+    } catch (e) {
+      notify(e instanceof Error ? e.message : '삭제할 수 없습니다.');
+    }
     setSelected([]);
     setMenu(null);
   }
@@ -194,7 +207,7 @@ export function DesktopSurface({ onRunner }: { onRunner: () => void }) {
         if (clipboard.cut) setClipboard(null);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : '붙여넣기 실패');
+      notify(e instanceof Error ? e.message : '붙여넣기 실패');
     }
     setMenu(null);
   }

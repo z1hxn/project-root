@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Check, ArrowRight, LoaderCircle, Monitor } from 'lucide-react';
 import { Desktop } from '@/components/desktop/Desktop';
 import { PlasmaLogo } from '@/components/desktop/AppIcon';
+import { OSLogin } from './OSLogin';
 import { api } from '@/lib/api';
 import type { UserProfile } from '@/types/user';
 export const BOOT_STEP_MS = 700;
@@ -14,7 +15,7 @@ const messages = [
 ];
 export function Workstation({ initialProfile }: { initialProfile: UserProfile }) {
   const [profile, setProfile] = useState(initialProfile);
-  const [phase, setPhase] = useState<'boot' | 'setup' | 'desktop'>('boot');
+  const [phase, setPhase] = useState<'boot' | 'login' | 'setup' | 'desktop'>('boot');
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -25,8 +26,7 @@ export function Workstation({ initialProfile }: { initialProfile: UserProfile })
     return () => clearInterval(timer);
   }, [phase]);
   useEffect(() => {
-    if (phase === 'boot' && step >= messages.length)
-      setPhase(profile.setupCompleted ? 'desktop' : 'setup');
+    if (phase === 'boot' && step >= messages.length) setPhase('login');
   }, [step, phase, profile.setupCompleted]);
   async function setup(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -45,6 +45,13 @@ export function Workstation({ initialProfile }: { initialProfile: UserProfile })
       setBusy(false);
     }
   }
+  if (phase === 'login')
+    return (
+      <OSLogin
+        profile={profile}
+        onUnlock={() => setPhase(profile.setupCompleted ? 'desktop' : 'setup')}
+      />
+    );
   if (phase === 'desktop')
     return (
       <Desktop

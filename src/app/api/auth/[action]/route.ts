@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { db } from '@/server/db';
-import { createSession, destroySession } from '@/server/auth';
+import { createSession, destroySession, currentUser } from '@/server/auth';
 import { hashPassword, verifyPassword } from '@/server/password';
 import { errorResponse, rateLimited, sameOrigin } from '@/server/http';
 import { loginSchema, registrationSchema } from '@/lib/validation';
@@ -11,6 +11,20 @@ export async function POST(request: Request, context: { params: Promise<{ action
   try {
     if (action === 'logout') {
       await destroySession();
+      return NextResponse.json({ ok: true });
+    }
+    if (action === 'unlock') {
+      const user = await currentUser();
+      if (!user) return errorResponse('다시 로그인해 주세요.', 401);
+      if (rateLimited(`unlock:${user.id}`))
+        return errorResponse('잠시 후 다시 시도해 주세요.', 429);
+      const body = await request.json();
+      if (
+        typeof body.password !== 'string' ||
+        body.password.length > 128 ||
+        !(await verifyPassword(body.password, user.passwordHash))
+      )
+        return errorResponse('계정 비밀번호가 일치하지 않습니다.', 401);
       return NextResponse.json({ ok: true });
     }
     if (!['register', 'login'].includes(action))

@@ -16,6 +16,13 @@ async function screenshot(page: Page, name: string) {
     animations: 'disabled',
   });
 }
+async function osLogin(page: Page) {
+  await expect(page.getByRole('main', { name: 'OS 로그인', exact: true })).toBeVisible({
+    timeout: 12000,
+  });
+  await page.getByLabel('OS 로그인 비밀번호').fill(password);
+  await page.getByRole('button', { name: 'OS 로그인', exact: true }).click();
+}
 test('new analyst: KDE workspace, native applications, persistence and session lifecycle', async ({
   page,
   browser,
@@ -37,10 +44,19 @@ test('new analyst: KDE workspace, native applications, persistence and session l
   await page.getByRole('button', { name: '계정 생성 및 시작' }).click();
   await expect(page.getByRole('main', { name: '워크스테이션 부팅' })).toBeVisible();
   await screenshot(page, 'plasma-boot');
+  await expect(page.getByLabel('OS 로그인 비밀번호')).toBeVisible({ timeout: 12000 });
+  await screenshot(page, 'os-login');
+  await page.getByLabel('OS 로그인 비밀번호').fill('wrong-password');
+  await page.getByRole('button', { name: 'OS 로그인', exact: true }).click();
+  await expect(
+    page.getByRole('main', { name: 'OS 로그인', exact: true }).getByRole('alert'),
+  ).toContainText('계정 비밀번호가 일치하지 않습니다.');
+  await osLogin(page);
   await expect(page.getByRole('heading', { name: '당신의 자리를 확인하세요.' })).toBeVisible({
     timeout: 12000,
   });
   await page.reload();
+  await osLogin(page);
   await expect(page.getByRole('heading', { name: '당신의 자리를 확인하세요.' })).toBeVisible({
     timeout: 12000,
   });
@@ -53,6 +69,9 @@ test('new analyst: KDE workspace, native applications, persistence and session l
   await root.getByRole('button', { name: '안내 마치기' }).click();
   await expect(root.getByRole('heading', { name: '환영합니다, 조사관 ROOT님.' })).toBeVisible();
   await expect(page.getByLabel('데스크톱 패널', { exact: true })).not.toContainText(username);
+  await expect(root.getByRole('heading', { name: '워크스테이션 둘러보기' })).toBeVisible();
+  await expect(page.getByRole('status')).toContainText('새 임무: 워크스테이션 둘러보기');
+  await expect(root.getByText('Tip · 자유롭게 메모하세요')).toBeAttached();
   await screenshot(page, 'plasma-desktop');
   await root.getByRole('button', { name: '세계관 안내', exact: true }).click();
   await expect(root.getByRole('heading', { name: '지워진 것에도 흔적은 남습니다.' })).toBeVisible();
@@ -154,7 +173,19 @@ test('new analyst: KDE workspace, native applications, persistence and session l
   await expect(dolphin.getByRole('button', { name: 'note.txt', exact: true })).toBeVisible();
   await dolphin.getByRole('button', { name: 'note.txt', exact: true }).dblclick();
   await expect(page.getByLabel('파일 내용')).toHaveValue('evidence\n');
-  await page.getByRole('dialog').getByRole('button', { name: '닫기', exact: true }).click();
+  const editor = page.getByRole('region', { name: 'KWrite 창', exact: true });
+  await editor.getByLabel('파일 내용').fill('첫 번째 자유 메모\n컴퓨터 둘러보기');
+  await editor.getByLabel('파일 내용').press('Control+s');
+  await expect(editor.locator('.kwrite-tab')).toContainText('저장됨');
+  await screenshot(page, 'kwrite');
+  await editor.getByRole('button', { name: '새 문서', exact: true }).click();
+  await editor.getByLabel('파일 내용').fill('내가 원하는 자유 메모');
+  await editor.getByLabel('파일 내용').press('Control+s');
+  await page.getByLabel('텍스트 파일 경로').fill(`/home/${username}/Desktop/자유 메모.txt`);
+  await page.getByRole('dialog').getByRole('button', { name: '저장', exact: true }).click();
+  await expect(editor.locator('.kwrite-tab')).toContainText('자유 메모.txt');
+  await expect(surface.getByRole('button', { name: '자유 메모.txt', exact: true })).toBeAttached();
+  await editor.getByRole('button', { name: 'KWrite 닫기' }).click();
   await dolphin
     .locator('.dolphin-places')
     .getByRole('button', { name: '다운로드', exact: true })
@@ -163,6 +194,11 @@ test('new analyst: KDE workspace, native applications, persistence and session l
     dolphin.getByRole('button', { name: 'Project-Root-Guide.txt', exact: true }),
   ).toBeVisible();
   await screenshot(page, 'dolphin');
+  await dolphin.locator('.dolphin-places').getByRole('button', { name: '홈', exact: true }).click();
+  await dolphin.getByRole('button', { name: 'Downloads', exact: true }).click();
+  await page.keyboard.press('Delete');
+  await expect(dolphin.getByRole('alert')).toContainText('워크스테이션의 기본 폴더');
+  await expect(dolphin.getByRole('button', { name: 'Downloads', exact: true })).toBeVisible();
   await dolphin.getByRole('button', { name: 'Dolphin 닫기' }).click();
   await page.getByRole('button', { name: 'KMail 실행 또는 복원' }).click();
   const mail = page.getByRole('region', { name: 'KMail 창', exact: true });
@@ -200,7 +236,7 @@ test('new analyst: KDE workspace, native applications, persistence and session l
   await settings.getByRole('button', { name: '적용', exact: true }).click();
   await settings.getByRole('button', { name: '시스템 설정 닫기' }).click();
   await page.reload();
-  await expect(page.getByRole('main', { name: '워크스테이션 부팅' })).toBeVisible();
+  await osLogin(page);
   await expect(root.getByRole('heading', { name: '환영합니다, 조사관 ROOT님.' })).toBeVisible({
     timeout: 12000,
   });
@@ -208,20 +244,49 @@ test('new analyst: KDE workspace, native applications, persistence and session l
   await root.getByRole('button', { name: 'Project Root 최소화' }).click();
   await expect(icon).toHaveCSS('left', `${iconX}px`);
   await expect(surface.getByRole('button', { name: '첫 조사', exact: true })).toBeVisible();
+  await surface.getByRole('button', { name: '자유 메모.txt', exact: true }).dblclick();
+  await expect(editor.getByLabel('파일 내용')).toHaveValue('내가 원하는 자유 메모');
+  await editor.getByLabel('파일 내용').fill('저장하지 않은 초안도 보관');
+  await editor.getByRole('button', { name: 'KWrite 닫기' }).click();
+  await page.getByRole('button', { name: 'KWrite 실행 또는 복원' }).click();
+  await expect(editor.getByLabel('파일 내용')).toHaveValue('저장하지 않은 초안도 보관');
+  await editor.getByRole('button', { name: 'KWrite 닫기' }).click();
   await page.getByRole('button', { name: '프로그램 실행 메뉴', exact: true }).click();
   await screenshot(page, 'plasma-launcher');
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: '오디오 음량', exact: true }).click();
   await expect(page.getByLabel('트레이 음량')).toBeVisible();
+  const audioTray = page.getByRole('region', { name: '오디오 트레이', exact: true });
+  await expect(audioTray).toHaveCSS('display', 'block');
+  const audioHeader = (await audioTray.locator('header').boundingBox())!;
+  expect((await audioTray.locator('.tray-device').boundingBox())!.y).toBeGreaterThanOrEqual(
+    audioHeader.y + audioHeader.height,
+  );
+  expect(await audioTray.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await screenshot(page, 'audio-tray');
+  await page.getByRole('button', { name: '트레이 닫기' }).click();
+  await page.getByRole('button', { name: '네트워크', exact: true }).click();
+  const networkTray = page.getByRole('region', { name: '네트워크 트레이', exact: true });
+  await expect(networkTray).toHaveCSS('display', 'block');
+  const networkHeader = (await networkTray.locator('header').boundingBox())!;
+  expect((await networkTray.locator('.tray-toggles').boundingBox())!.y).toBeGreaterThanOrEqual(
+    networkHeader.y + networkHeader.height,
+  );
+  expect(await networkTray.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await screenshot(page, 'network-tray');
   await page.getByRole('button', { name: '트레이 닫기' }).click();
   await page.getByRole('button', { name: 'Project Root 실행 또는 복원' }).click();
   await root.getByRole('button', { name: '내 프로필', exact: true }).click();
   await expect(root.getByLabel('표시 이름')).toBeVisible();
   await root.getByRole('button', { name: '워크스테이션 종료', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: '종료', exact: true }).click();
-  await expect(page.getByRole('button', { name: '워크스테이션 켜기' })).toBeVisible();
-  await page.getByRole('button', { name: '워크스테이션 켜기' }).click();
+  await expect(page).toHaveURL(baseURL + '/');
+  await expect(page.getByRole('link', { name: '로그인', exact: true })).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole('link', { name: '워크스테이션 켜기', exact: true })).toBeVisible();
+  await page.getByRole('link', { name: '워크스테이션 켜기', exact: true }).click();
   await expect(page.getByRole('main', { name: '워크스테이션 부팅' })).toBeVisible();
+  await osLogin(page);
   await expect(root).toBeVisible({ timeout: 12000 });
   await page.keyboard.press('Control+Alt+l');
   await expect(page.getByLabel('잠금 해제 비밀번호')).toBeVisible();
@@ -235,6 +300,7 @@ test('new analyst: KDE workspace, native applications, persistence and session l
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: '워크스테이션 연결' }).click();
   await expect(page.getByRole('main', { name: '워크스테이션 부팅' })).toBeVisible();
+  await osLogin(page);
   await expect(root).toBeVisible({ timeout: 12000 });
   // Mobile and laptop layouts remain bounded.
   await page.setViewportSize({ width: 1366, height: 768 });
@@ -256,6 +322,22 @@ test('new analyst: KDE workspace, native applications, persistence and session l
       await page.request.put('/api/settings', {
         headers: { origin: 'https://untrusted.example' },
         data: {},
+      })
+    ).status(),
+  ).toBe(403);
+  expect(
+    (
+      await unauthorized.request.post(`${baseURL}/api/auth/unlock`, {
+        headers: { origin: baseURL },
+        data: { password },
+      })
+    ).status(),
+  ).toBe(401);
+  expect(
+    (
+      await page.request.post('/api/auth/unlock', {
+        headers: { origin: 'https://untrusted.example' },
+        data: { password },
       })
     ).status(),
   ).toBe(403);

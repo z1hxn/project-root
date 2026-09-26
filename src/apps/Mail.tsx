@@ -34,7 +34,8 @@ interface Message {
   date: string;
 }
 export function Mail() {
-  const { profile, notify } = useWorkspace();
+  const { profile, notify: workspaceNotify } = useWorkspace();
+  const notify = (message: string) => workspaceNotify(message, 'mail');
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 'welcome',

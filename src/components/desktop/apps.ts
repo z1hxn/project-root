@@ -1,4 +1,4 @@
-import { Shield, Globe2, Terminal, Mail, Folder, Settings } from 'lucide-react';
+import { Shield, Globe2, Terminal, Mail, Folder, Settings, FilePenLine } from 'lucide-react';
 export const applications = [
   {
     id: 'root',
@@ -59,6 +59,16 @@ export const applications = [
     category: 'System',
     width: 1060,
     height: 710,
+  },
+  {
+    id: 'editor',
+    name: 'KWrite',
+    subtitle: '텍스트 편집기',
+    icon: FilePenLine,
+    asset: 'editor.svg',
+    category: 'Office',
+    width: 920,
+    height: 660,
   },
 ] as const;
 export type AppId = (typeof applications)[number]['id'];

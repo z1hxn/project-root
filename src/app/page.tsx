@@ -1,10 +1,9 @@
 import Link from 'next/link';
-import { redirect } from 'next/navigation';
 import { ArrowRight, Globe2, Fingerprint, Layers3, Terminal } from 'lucide-react';
 import { Brand, Mark } from '@/components/ui/Brand';
 import { currentUser } from '@/server/auth';
 export default async function Landing() {
-  if (await currentUser()) redirect('/game');
+  const user = await currentUser();
   return (
     <main className="landing">
       <header className="site-header">
@@ -13,8 +12,8 @@ export default async function Landing() {
         </Link>
         <div className="header-right">
           <span className="eyebrow subtle">A BROWSER-BASED CYBER MYSTERY</span>
-          <Link href="/login" className="text-link">
-            로그인 <ArrowRight size={15} />
+          <Link href={user ? '/game' : '/login'} className="text-link">
+            {user ? `${user.displayName} · 워크스테이션` : '로그인'} <ArrowRight size={15} />
           </Link>
         </div>
       </header>
@@ -36,8 +35,8 @@ export default async function Landing() {
             웹과 기록, 그 사이에 숨겨진 연결을 따라
             <br className="desktop-break" /> 사건의 근원을 찾아가는 사이버 미스터리.
           </p>
-          <Link className="button primary hero-cta" href="/intro">
-            시작하기 <ArrowRight size={18} />
+          <Link className="button primary hero-cta" href={user ? '/game' : '/intro'}>
+            {user ? '워크스테이션 켜기' : '시작하기'} <ArrowRight size={18} />
           </Link>
           <span className="cta-note">당신의 브라우저가 워크스테이션이 됩니다.</span>
         </div>

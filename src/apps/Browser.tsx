@@ -33,6 +33,8 @@ import {
 } from 'lucide-react';
 import { useWorkspace } from '@/features/workspace/context';
 import { writeFile, homePath } from '@/game/filesystem';
+import { WorldSite } from './WorldSite';
+import { OFFICIAL_URL, worldPage, searchWorld } from '@/game/world';
 import { ToolButton } from '@/components/ui/Native';
 interface Tab {
   id: number;
@@ -46,7 +48,8 @@ interface BookmarkItem {
   url: string;
 }
 const titleFor = (url: string) =>
-  url === 'about:newtab'
+  worldPage(url)?.title ||
+  (url === 'about:newtab'
     ? '새 탭'
     : url === 'about:preferences'
       ? '설정'
@@ -56,9 +59,17 @@ const titleFor = (url: string) =>
           ? 'Project Root · Intranet'
           : url === 'about:downloads'
             ? '다운로드'
-            : url;
+            : url);
 export function Browser() {
-  const { profile, settings, files, setFiles, notify } = useWorkspace();
+  const {
+    profile,
+    settings,
+    files,
+    setFiles,
+    recordVisit,
+    notify: workspaceNotify,
+  } = useWorkspace();
+  const notify = (message: string) => workspaceNotify(message, 'browser');
   const [tabs, setTabs] = useState<Tab[]>([
     { id: 1, url: 'about:newtab', history: ['about:newtab'], index: 0, private: false },
   ]);
@@ -69,7 +80,7 @@ export function Browser() {
     null,
   );
   const [bookmarks, setBookmarks] = useState<BookmarkItem[]>([
-    { title: 'Project Root · Intranet', url: 'https://portal.root' },
+    { title: 'Project Root 공식 사이트', url: OFFICIAL_URL },
     { title: 'Index', url: 'https://index.root' },
   ]);
   const [history, setHistory] = useState<BookmarkItem[]>([]);
@@ -89,6 +100,19 @@ export function Browser() {
   const content = useRef<HTMLDivElement>(null);
   const activeTab = tabs.find((t) => t.id === active) ?? tabs[0];
   const offline = !settings.wifi || settings.airplaneMode;
+  const page = worldPage(activeTab.url);
+  const [visitError, setVisitError] = useState('');
+  useEffect(() => {
+    if (!page || offline || loading || !profile.briefingCompleted) return;
+    let live = true;
+    setVisitError('');
+    recordVisit(page.url).catch((e) => {
+      if (live) setVisitError(e instanceof Error ? e.message : '임무 진행을 저장하지 못했습니다.');
+    });
+    return () => {
+      live = false;
+    };
+  }, [activeTab.url, active, offline, loading, profile.briefingCompleted, recordVisit]);
   useEffect(() => {
     try {
       const data = JSON.parse(localStorage.getItem(`root-firefox:${profile.username}`) || 'null');
@@ -632,18 +656,12 @@ export function Browser() {
               <div className="firefox-shortcuts">
                 {[
                   {
-                    title: 'Project Root',
-                    url: 'https://portal.root',
+                    title: 'Project Root 공식 사이트',
+                    url: OFFICIAL_URL,
                     letter: 'R',
                     color: '#193b59',
                   },
                   { title: 'Index', url: 'https://index.root', letter: 'i', color: '#6847ed' },
-                  {
-                    title: '시작 안내',
-                    url: 'https://portal.root/guide',
-                    letter: '?',
-                    color: '#158977',
-                  },
                 ].map((s) => (
                   <button key={s.title} onClick={() => navigate(s.url)}>
                     <span style={{ color: s.color }}>{s.letter}</span>
@@ -717,6 +735,8 @@ export function Browser() {
               <p>인터넷에 연결되어 있지 않습니다. 시스템 트레이에서 네트워크 연결을 확인하세요.</p>
               <button onClick={() => setLoading(true)}>다시 시도</button>
             </div>
+          ) : page ? (
+            <WorldSite kind={page.kind} navigate={navigate} />
           ) : host === 'portal.root' ? (
             <article className="intranet">
               <header>
@@ -772,18 +792,18 @@ export function Browser() {
               {query ? (
                 <div className="index-results">
                   <small>“{query}” 검색 결과</small>
-                  {/root|안내|work|조사|시작/i.test(query) ? (
-                    <article>
-                      <small>portal.root › guide</small>
-                      <button onClick={() => navigate('https://portal.root/guide')}>
-                        PROJECT ROOT — 워크스테이션 안내
-                      </button>
-                      <p>조사관을 위한 시작 안내와 업무용 도구를 확인하세요.</p>
-                    </article>
+                  {searchWorld(query).length ? (
+                    searchWorld(query).map((result) => (
+                      <article key={result.url}>
+                        <small>{result.url.replace('https://', '')}</small>
+                        <button onClick={() => navigate(result.url)}>{result.title}</button>
+                        <p>{result.description}</p>
+                      </article>
+                    ))
                   ) : (
                     <>
                       <h2>일치하는 기록을 찾지 못했습니다.</h2>
-                      <p>검색어의 철자를 확인하거나 다른 표현으로 검색해 보세요.</p>
+                      <p>검색어의 철자를 확인하거나 인물, 단체 이름으로 검색해 보세요.</p>
                     </>
                   )}
                 </div>
@@ -806,6 +826,12 @@ export function Browser() {
           )}
         </div>
       </div>
+      {visitError && (
+        <div className="native-inline-error" role="alert">
+          {visitError}
+          <button onClick={() => setLoading(true)}>다시 시도</button>
+        </div>
+      )}
       {find && (
         <div className="firefox-find">
           <button aria-label="찾기 닫기" onClick={() => setFind(false)}>
