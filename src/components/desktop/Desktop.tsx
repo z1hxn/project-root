@@ -1,6 +1,13 @@
 'use client';
 import { useCallback, useEffect, useReducer, useRef, useState, type CSSProperties } from 'react';
-import { investigationMission, type GameProgress, type GameEvent } from '@/game/missions';
+import {
+  type GameProgress,
+  type GameEvent,
+  type IncidentReport,
+  type LinkReport,
+  type BuildReport,
+} from '@/game/missions';
+import { caseMissions, evidenceForFile } from '@/game/cases';
 import { useRouter } from 'next/navigation';
 import { playNotification } from '@/lib/sound';
 import {
@@ -40,7 +47,11 @@ import { applications, type AppId } from './apps';
 import { AppIcon, PlasmaLogo } from './AppIcon';
 import { DesktopSurface } from './DesktopSurface';
 import { AppContent } from '@/apps/AppContent';
-import { WorkspaceContext, type SessionAction } from '@/features/workspace/context';
+import {
+  WorkspaceContext,
+  type SessionAction,
+  type EditorDocument,
+} from '@/features/workspace/context';
 import { homePath, initialFiles, repairSystemDirectories, type GameFile } from '@/game/filesystem';
 import { wallpapers, type OSSettings } from '@/lib/os-settings';
 import { api } from '@/lib/api';
@@ -141,35 +152,75 @@ export function Desktop({
   const [settingsPage, setSettingsPage] = useState('quick');
   const [files, setFiles] = useState<GameFile[]>(() => initialFiles(profile.username));
   const [filesLoaded, setFilesLoaded] = useState(false);
-  const [editorDocument, setEditorDocument] = useState<{
-    path: string | null;
-    text: string;
-    saved: string;
-  }>({ path: null, text: '', saved: '' });
-  const [editorRequest, setEditorRequest] = useState<{ path: string; id: number } | null>(null);
+  const emptyEditor: EditorDocument = { path: null, text: '', saved: '' };
+  const [editorDocuments, setEditorDocuments] = useState<Record<string, EditorDocument>>({
+    editor: emptyEditor,
+  });
+  const editorSequence = useRef(0);
+  const setEditorDocument = useCallback((instanceId: string, document: EditorDocument) => {
+    setEditorDocuments((current) => ({ ...current, [instanceId]: document }));
+  }, []);
   useEffect(() => {
     try {
-      const draft = JSON.parse(localStorage.getItem(`root-editor:${profile.username}`) || 'null');
-      if (
-        draft &&
+      const saved = JSON.parse(
+        localStorage.getItem(`root-editor-windows:${profile.username}`) || 'null',
+      );
+      const valid = (draft: unknown): draft is EditorDocument =>
+        !!draft &&
+        typeof draft === 'object' &&
+        'path' in draft &&
         (draft.path === null || typeof draft.path === 'string') &&
+        'text' in draft &&
         typeof draft.text === 'string' &&
-        typeof draft.saved === 'string'
-      )
-        setEditorDocument(draft);
+        'saved' in draft &&
+        typeof draft.saved === 'string';
+      if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
+        const documents = Object.fromEntries(
+          Object.entries(saved)
+            .filter(([key, draft]) => key.startsWith('editor') && valid(draft))
+            .slice(0, 20),
+        ) as Record<string, EditorDocument>;
+        setEditorDocuments({ editor: documents.editor || emptyEditor, ...documents });
+        editorSequence.current = Math.max(
+          0,
+          ...Object.keys(documents).map((key) => Number(key.match(/^editor-(\d+)$/)?.[1] || 0)),
+        );
+      } else {
+        const legacy = JSON.parse(
+          localStorage.getItem(`root-editor:${profile.username}`) || 'null',
+        );
+        if (valid(legacy)) setEditorDocuments({ editor: legacy });
+      }
     } catch {}
   }, [profile.username]);
   useEffect(() => {
     if (filesLoaded)
       try {
-        localStorage.setItem(`root-editor:${profile.username}`, JSON.stringify(editorDocument));
+        localStorage.setItem(
+          `root-editor-windows:${profile.username}`,
+          JSON.stringify(editorDocuments),
+        );
       } catch {
         setToast({ message: '편집기 초안을 저장할 공간이 부족합니다.', source: 'editor' });
       }
-  }, [editorDocument, filesLoaded, profile.username]);
+  }, [editorDocuments, filesLoaded, profile.username]);
   function openText(path: string) {
-    setEditorRequest({ path, id: Date.now() });
-    openApp('editor');
+    const caseEvidence = evidenceForFile(path);
+    if (caseEvidence && latest.current.profile.gameProgress.stage === 2)
+      void sendGameEvent({ type: 'evidence', path: caseEvidence }).catch((error) =>
+        notify(error instanceof Error ? error.message : '증거 기록 실패', 'root'),
+      );
+    const existing = windows.find(
+      (w) => w.id === 'editor' && editorDocuments[w.instanceId]?.path === path,
+    );
+    if (existing) {
+      setDesktop(existing.desktop);
+      dispatch({ type: 'open', id: 'editor', instanceId: existing.instanceId });
+      return;
+    }
+    const file = files.find((f) => f.path === path && f.kind === 'file');
+    if (!file) return;
+    openEditorWindow({ path, text: file.content || '', saved: file.content || '' });
   }
 
   const [fileLocation, setFileLocation] = useState(homePath(profile.username));
@@ -228,7 +279,7 @@ export function Desktop({
       setDesktop(0);
       for (const w of windows)
         if (w.desktop >= settings.virtualDesktops)
-          dispatch({ type: 'desktop', id: w.id, desktop: 0 });
+          dispatch({ type: 'desktop', id: w.id, instanceId: w.instanceId, desktop: 0 });
     }
   }, [settings.virtualDesktops, desktop, windows]);
   const notify = useCallback((message: string, source: AppId | 'plasma' = 'plasma') => {
@@ -264,33 +315,60 @@ export function Desktop({
           }>('/api/game/events', 'POST', event);
           latest.current.onProfile({ ...latest.current.profile, gameProgress: result.progress });
           if (result.assigned)
-            notify(
-              `두 번째 미션이 배정되었습니다: ${investigationMission.title}. Project Root에서 조사 목표를 확인하세요.`,
-              'root',
-            );
+            notify(`새 임무가 배정되었습니다: ${caseMissions[result.progress.stage - 1].title}. Project Root에서 확인하세요.`, 'root');
           if (event.type === 'rollback')
             notify(
-              `${event.stage + 1}번째 임무로 돌아갔습니다. 개인 파일과 메모는 유지됩니다.`,
+              `${event.stage}번째 임무로 돌아갔습니다. 개인 파일과 메모는 유지됩니다.`,
               'root',
             );
           if (result.completed)
-            notify('조사 보고서가 승인되었습니다. 두 번째 임무를 완료했습니다.', 'root');
+            notify(`조사 보고서가 승인되었습니다. ${result.progress.stage}번째 임무를 완료했습니다.${result.progress.pendingStage ? ' 다음 임무는 잠시 후 배정됩니다.' : ''}`, 'root');
         });
       gameQueue.current = request;
       return request;
     },
     [notify],
   );
+  useEffect(() => {
+    const { pendingStage, nextMissionAt } = profile.gameProgress;
+    if (!pendingStage || !nextMissionAt) return;
+    let cancelled = false;
+    let timer: number;
+    const activate = () => {
+      void sendGameEvent({ type: 'activate' }).then(() => {
+        if (!cancelled && latest.current.profile.gameProgress.pendingStage)
+          timer = window.setTimeout(activate, 2000);
+      }).catch((error) => {
+        if (!cancelled) {
+          notify(error instanceof Error ? error.message : '다음 임무를 불러오지 못했습니다.', 'root');
+          timer = window.setTimeout(activate, 5000);
+        }
+      });
+    };
+    timer = window.setTimeout(activate, Math.max(0, Date.parse(nextMissionAt) - Date.now()));
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [profile.gameProgress.pendingStage, profile.gameProgress.nextMissionAt, sendGameEvent, notify]);
   const recordVisit = useCallback(
     (url: string) => sendGameEvent({ type: 'visit', url }),
     [sendGameEvent],
   );
   const rollbackMission = useCallback(
-    (stage: 0 | 1) => sendGameEvent({ type: 'rollback', stage }),
+    (stage: 1 | 2 | 3) => sendGameEvent({ type: 'rollback', stage }),
     [sendGameEvent],
   );
   const submitReport = useCallback(
-    (handle: string, sources: string[]) => sendGameEvent({ type: 'report', handle, sources }),
+    (report: IncidentReport) => sendGameEvent({ type: 'incident-report', report }),
+    [sendGameEvent],
+  );
+  const submitLinkReport = useCallback((report: LinkReport) => sendGameEvent({ type: 'link-report', report }), [sendGameEvent]);
+  const submitBuildReport = useCallback((report: BuildReport) => sendGameEvent({ type: 'build-report', report }), [sendGameEvent]);
+  const useHint = useCallback(() => sendGameEvent({ type: 'hint' }), [sendGameEvent]);
+  const installPackage = useCallback(
+    () => sendGameEvent({ type: 'install', package: 'smbclient' }),
+    [sendGameEvent],
+  );
+  const recordEvidence = useCallback(
+    (path: string) => sendGameEvent({ type: 'evidence', path }),
     [sendGameEvent],
   );
   const saveSettings = useCallback(async (next: OSSettings) => {
@@ -302,7 +380,31 @@ export function Desktop({
       notify(e instanceof Error ? e.message : '설정 저장 실패'),
     );
   }
+  function openEditorWindow(document?: EditorDocument) {
+    const primaryOpen = windows.some((w) => w.instanceId === 'editor');
+    const primaryDraft = editorDocuments.editor;
+    const keepPrimary = !!document && !!primaryDraft && primaryDraft.text !== primaryDraft.saved;
+    const instanceId =
+      !primaryOpen && !keepPrimary ? 'editor' : `editor-${++editorSequence.current}`;
+    if (document) setEditorDocument(instanceId, document);
+    else if (instanceId !== 'editor')
+      setEditorDocument(instanceId, { path: null, text: '', saved: '' });
+    dispatch({ type: 'open', id: 'editor', instanceId, desktop });
+    setLauncher(false);
+    setRunner(false);
+    setOverview(false);
+  }
+  function restoreEditorWindow(instanceId: string) {
+    if (!editorDocuments[instanceId]) return;
+    const existing = windows.find((w) => w.instanceId === instanceId);
+    if (existing) setDesktop(existing.desktop);
+    dispatch({ type: 'open', id: 'editor', instanceId, desktop });
+  }
   function openApp(id: AppId) {
+    if (id === 'editor') {
+      openEditorWindow();
+      return;
+    }
     const existing = windows.find((w) => w.id === id);
     if (existing) setDesktop(existing.desktop);
     dispatch({ type: 'open', id, desktop });
@@ -369,7 +471,7 @@ export function Desktop({
       }
       if (e.altKey && e.key === 'F4' && active) {
         e.preventDefault();
-        dispatch({ type: 'close', id: active.id });
+        dispatch({ type: 'close', id: active.id, instanceId: active.instanceId });
       }
     };
     window.addEventListener('keydown', key);
@@ -446,10 +548,9 @@ export function Desktop({
     <WorkspaceContext.Provider
       value={{
         profile,
-        editorDocument,
+        editorDocuments,
         setEditorDocument,
-        editorRequest,
-        clearEditorRequest: () => setEditorRequest(null),
+        restoreEditorWindow,
         openText,
         onProfile,
         settings,
@@ -461,6 +562,11 @@ export function Desktop({
         notify,
         recordVisit,
         submitReport,
+        submitLinkReport,
+        submitBuildReport,
+        useHint,
+        installPackage,
+        recordEvidence,
         rollbackMission,
         settingsPage,
         setSettingsPage,
@@ -484,13 +590,13 @@ export function Desktop({
         <DesktopSurface onRunner={() => setRunner(true)} />
         {windows.map((w) => (
           <AppWindow
-            key={w.id}
+            key={w.instanceId}
             state={w}
             visible={w.desktop === desktop}
-            active={w.id === active?.id}
+            active={w.instanceId === active?.instanceId}
             dispatch={dispatch}
           >
-            <AppContent id={w.id} />
+            <AppContent id={w.id} windowId={w.instanceId} active={active?.instanceId === w.instanceId} />
           </AppWindow>
         ))}
         {overview && (
@@ -687,7 +793,7 @@ export function Desktop({
               ['settings', 'files', 'browser', 'terminal', 'mail', 'editor', 'root'] as AppId[]
             ).map((id) => {
               const app = applications.find((a) => a.id === id)!;
-              const state = windows.find((w) => w.id === id);
+              const state = windows.filter((w) => w.id === id).sort((a, b) => b.z - a.z)[0];
               return (
                 <button
                   key={id}
@@ -695,8 +801,12 @@ export function Desktop({
                   title={app.name}
                   className={`${state ? 'running' : ''} ${active?.id === id ? 'active' : ''}`}
                   onClick={() => {
-                    if (active?.id === id) dispatch({ type: 'minimize', id });
-                    else openApp(id);
+                    if (active?.id === id && state)
+                      dispatch({ type: 'minimize', id, instanceId: active.instanceId });
+                    else if (state) {
+                      setDesktop(state.desktop);
+                      dispatch({ type: 'open', id, instanceId: state.instanceId });
+                    } else openApp(id);
                   }}
                 >
                   <AppIcon id={id} size={31} />

@@ -29,5 +29,6 @@ export const profileSchema = z.object({
   displayName: z.string().trim().min(1, '표시 이름을 입력해 주세요.').max(32).optional(),
   wallpaper: z.enum(['slate', 'midnight']).optional(),
   briefingCompleted: z.literal(true).optional(),
+  introCompleted: z.literal(true).optional(),
   setupCompleted: z.literal(true).optional(),
 });

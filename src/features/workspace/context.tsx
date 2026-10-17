@@ -1,9 +1,10 @@
 'use client';
-import { createContext, useContext } from 'react';
+import { createContext, useContext, type Dispatch, type SetStateAction } from 'react';
 import type { UserProfile } from '@/types/user';
 import type { OSSettings } from '@/lib/os-settings';
 import type { GameFile } from '@/game/filesystem';
 import type { AppId } from '@/components/desktop/apps';
+import type { IncidentReport, LinkReport, BuildReport } from '@/game/missions';
 export type SessionAction = 'logout' | 'shutdown' | 'restart' | 'lock';
 export interface EditorDocument {
   path: string | null;
@@ -11,11 +12,10 @@ export interface EditorDocument {
   saved: string;
 }
 export interface WorkspaceContextValue {
-  editorDocument: EditorDocument;
-  setEditorDocument: (document: EditorDocument) => void;
-  editorRequest: { path: string; id: number } | null;
+  editorDocuments: Record<string, EditorDocument>;
+  setEditorDocument: (instanceId: string, document: EditorDocument) => void;
+  restoreEditorWindow: (instanceId: string) => void;
   openText: (path: string) => void;
-  clearEditorRequest: () => void;
   profile: UserProfile;
   onProfile: (p: UserProfile) => void;
   settings: OSSettings;
@@ -23,11 +23,16 @@ export interface WorkspaceContextValue {
   openApp: (id: AppId) => void;
   sessionAction: (action: SessionAction) => void;
   files: GameFile[];
-  setFiles: (files: GameFile[]) => void;
+  setFiles: Dispatch<SetStateAction<GameFile[]>>;
   notify: (message: string, source?: AppId | 'plasma') => void;
   recordVisit: (url: string) => Promise<void>;
-  rollbackMission: (stage: 0 | 1) => Promise<void>;
-  submitReport: (handle: string, sources: string[]) => Promise<void>;
+  rollbackMission: (stage: 1 | 2 | 3) => Promise<void>;
+  submitLinkReport: (report: LinkReport) => Promise<void>;
+  submitBuildReport: (report: BuildReport) => Promise<void>;
+  submitReport: (report: IncidentReport) => Promise<void>;
+  useHint: () => Promise<void>;
+  installPackage: () => Promise<void>;
+  recordEvidence: (path: string) => Promise<void>;
   fileLocation: string;
   setFileLocation: (path: string) => void;
   clipboard: { paths: string[]; cut: boolean } | null;

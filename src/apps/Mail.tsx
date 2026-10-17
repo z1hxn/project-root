@@ -21,6 +21,7 @@ import {
   X,
 } from 'lucide-react';
 import { useWorkspace } from '@/features/workspace/context';
+import { OLD_RECORD_URL } from '@/game/cases';
 import { NativeMenuBar, NativeDialog, ToolButton } from '@/components/ui/Native';
 interface Message {
   id: string;
@@ -37,6 +38,14 @@ export function Mail() {
   const { profile, notify: workspaceNotify } = useWorkspace();
   const notify = (message: string) => workspaceNotify(message, 'mail');
   const [messages, setMessages] = useState<Message[]>([
+    {
+      id: 'case-001-request',
+      subject: '[조사 요청] 공개 기록 보존 안내 주소 확인',
+      from: 'Records Desk <records@root.internal>',
+      to: profile.email,
+      body: `자료 제목: 공개 기록 보존 안내\n이전 주소: ${OLD_RECORD_URL}\n마지막 확인: 2026-09-17\n\n이 주소가 열리지 않습니다. 자료가 삭제됐는지, 현재 공식 주소로 옮겨졌는지 공개 자료와 변경 이력을 비교해 확인해 주세요. Project Root에 결과를 제출해 주세요.`,
+      folder: 'inbox', read: false, star: false, date: '2026-09-26T09:00:00+09:00',
+    },
     {
       id: 'welcome',
       subject: 'PROJECT ROOT에 오신 것을 환영합니다',
@@ -65,7 +74,10 @@ export function Mail() {
         Array.isArray(saved) &&
         saved.every((m) => typeof m.id === 'string' && typeof m.body === 'string')
       )
-        setMessages(saved);
+        setMessages((initial) => [
+          ...initial.filter((message) => message.id === 'case-001-request' && !saved.some((old: Message) => old.id === message.id)),
+          ...saved,
+        ]);
     } catch {}
     setLoaded(true);
   }, [profile.username]);

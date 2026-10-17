@@ -1,6 +1,7 @@
 import { applications, type AppId } from '@/components/desktop/apps';
 export interface WindowState {
   id: AppId;
+  instanceId: string;
   x: number;
   y: number;
   width: number;
@@ -14,16 +15,29 @@ export interface WindowState {
   above: boolean;
 }
 export type WindowAction =
-  | { type: 'open'; id: AppId; desktop?: number }
-  | { type: 'close' | 'focus' | 'minimize' | 'maximize' | 'shade' | 'above'; id: AppId }
-  | { type: 'move'; id: AppId; x: number; y: number }
-  | { type: 'resize'; id: AppId; width: number; height: number; x?: number; y?: number }
-  | { type: 'snap'; id: AppId; side: 'left' | 'right' | null }
-  | { type: 'desktop'; id: AppId; desktop: number }
+  | { type: 'open'; id: AppId; instanceId?: string; desktop?: number }
+  | {
+      type: 'close' | 'focus' | 'minimize' | 'maximize' | 'shade' | 'above';
+      id: AppId;
+      instanceId?: string;
+    }
+  | { type: 'move'; id: AppId; instanceId?: string; x: number; y: number }
+  | {
+      type: 'resize';
+      id: AppId;
+      instanceId?: string;
+      width: number;
+      height: number;
+      x?: number;
+      y?: number;
+    }
+  | { type: 'snap'; id: AppId; instanceId?: string; side: 'left' | 'right' | null }
+  | { type: 'desktop'; id: AppId; instanceId?: string; desktop: number }
   | { type: 'showDesktop'; restore?: boolean };
 export const initialWindows: WindowState[] = [
   {
     id: 'root',
+    instanceId: 'root',
     x: 210,
     y: 62,
     width: 1040,
@@ -39,15 +53,17 @@ export const initialWindows: WindowState[] = [
 ];
 export function windowReducer(state: WindowState[], action: WindowAction): WindowState[] {
   const top = Math.max(0, ...state.map((w) => w.z)) + 1;
+  const target = 'id' in action ? (action.instanceId ?? action.id) : null;
   if (action.type === 'showDesktop')
     return state.map((w) => ({ ...w, minimized: !action.restore }));
-  if (action.type === 'close') return state.filter((w) => w.id !== action.id);
-  if (action.type === 'open' && !state.some((w) => w.id === action.id)) {
+  if (action.type === 'close') return state.filter((w) => w.instanceId !== target);
+  if (action.type === 'open' && !state.some((w) => w.instanceId === target)) {
     const app = applications.find((a) => a.id === action.id)!;
     return [
       ...state,
       {
         id: action.id,
+        instanceId: target!,
         x: 140 + (state.length % 5) * 32,
         y: 48 + (state.length % 5) * 28,
         width: app.width,
@@ -63,7 +79,7 @@ export function windowReducer(state: WindowState[], action: WindowAction): Windo
     ];
   }
   return state.map((w) => {
-    if (w.id !== action.id) return w;
+    if (w.instanceId !== target) return w;
     switch (action.type) {
       case 'open':
         return { ...w, minimized: false, shaded: false, z: top };

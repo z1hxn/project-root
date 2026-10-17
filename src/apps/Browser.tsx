@@ -34,7 +34,8 @@ import {
 import { useWorkspace } from '@/features/workspace/context';
 import { writeFile, homePath } from '@/game/filesystem';
 import { WorldSite } from './WorldSite';
-import { OFFICIAL_URL, worldPage, searchWorld } from '@/game/world';
+import { GoogleSearch } from './GoogleSearch';
+import { OFFICIAL_URL, worldPage } from '@/game/world';
 import { ToolButton } from '@/components/ui/Native';
 interface Tab {
   id: number;
@@ -53,14 +54,14 @@ const titleFor = (url: string) =>
     ? '새 탭'
     : url === 'about:preferences'
       ? '설정'
-      : url.includes('index.root')
-        ? 'Index — 검색'
+      : url.includes('google.com')
+        ? 'Google 검색'
         : url.includes('portal.root')
           ? 'Project Root · Intranet'
           : url === 'about:downloads'
             ? '다운로드'
             : url);
-export function Browser() {
+export function Browser({ isActive = true }: { isActive?: boolean }) {
   const {
     profile,
     settings,
@@ -81,7 +82,7 @@ export function Browser() {
   );
   const [bookmarks, setBookmarks] = useState<BookmarkItem[]>([
     { title: 'Project Root 공식 사이트', url: OFFICIAL_URL },
-    { title: 'Index', url: 'https://index.root' },
+    { title: 'Google', url: 'https://www.google.com' },
   ]);
   const [history, setHistory] = useState<BookmarkItem[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -93,17 +94,28 @@ export function Browser() {
   const [addressFocus, setAddressFocus] = useState(false);
   const [privacy, setPrivacy] = useState(false);
   const [pageSearch, setPageSearch] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [readyKey, setReadyKey] = useState('1|about:newtab|0|0');
+  const [refreshCount, setRefreshCount] = useState(0);
+  const visitedCache = useRef(new Set<string>());
   const [addressError, setAddressError] = useState('');
   const address = useRef<HTMLInputElement>(null);
   const seq = useRef(1);
   const content = useRef<HTMLDivElement>(null);
   const activeTab = tabs.find((t) => t.id === active) ?? tabs[0];
+  const navigationKey = `${activeTab.id}|${activeTab.url}|${activeTab.index}|${refreshCount}`;
+  const loading = activeTab.url !== 'about:newtab' && navigationKey !== readyKey;
   const offline = !settings.wifi || settings.airplaneMode;
   const page = worldPage(activeTab.url);
   const [visitError, setVisitError] = useState('');
   useEffect(() => {
-    if (!page || offline || loading || !profile.briefingCompleted) return;
+    if (
+      !page ||
+      !['official', 'github', 'threads'].includes(page.kind) ||
+      offline ||
+      loading ||
+      !profile.briefingCompleted
+    )
+      return;
     let live = true;
     setVisitError('');
     recordVisit(page.url).catch((e) => {
@@ -120,7 +132,13 @@ export function Browser() {
         if (Array.isArray(data.bookmarks))
           setBookmarks(
             data.bookmarks
-              .filter((x: BookmarkItem) => typeof x.title === 'string' && typeof x.url === 'string')
+              .filter(
+                (x: BookmarkItem) =>
+                  typeof x.title === 'string' &&
+                  typeof x.url === 'string' &&
+                  !x.url.includes('index.root') &&
+                  !x.url.includes('profile.root'),
+              )
               .slice(0, 100),
           );
         if (Array.isArray(data.history)) setHistory(data.history.slice(0, 100));
@@ -147,10 +165,41 @@ export function Browser() {
     setAddressError('');
   }, [activeTab.url, active]);
   useEffect(() => {
-    if (!loading) return;
-    const t = setTimeout(() => setLoading(false), 380);
-    return () => clearTimeout(t);
-  }, [loading]);
+    if (activeTab.url === 'about:newtab') {
+      setReadyKey(navigationKey);
+      return;
+    }
+    const cached = visitedCache.current.has(activeTab.url);
+    const internal = activeTab.url.includes('.root.internal');
+    const heavy = activeTab.url.includes('/search') || activeTab.url.includes('/post/');
+    const min = cached ? 100 : internal ? 150 : heavy ? 500 : 300;
+    const max = cached ? 350 : internal ? 700 : heavy ? 1400 : 1000;
+    const timer = setTimeout(() => {
+      visitedCache.current.add(activeTab.url);
+      setReadyKey(navigationKey);
+    }, min + Math.random() * (max - min));
+    return () => clearTimeout(timer);
+  }, [activeTab.url, navigationKey]);
+  useEffect(() => {
+    if (!isActive) return;
+    const shortcut = (event: KeyboardEvent) => {
+      if (!event.altKey || !event.shiftKey || event.ctrlKey || event.metaKey) return;
+      const key = event.key.toLowerCase();
+      if (!['t', 'w', 'l', 'f', 'b'].includes(key)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (key === 't') newTab();
+      if (key === 'w') closeTab(active);
+      if (key === 'l') {
+        address.current?.focus();
+        address.current?.select();
+      }
+      if (key === 'f') setFind(true);
+      if (key === 'b') bookmark();
+    };
+    document.addEventListener('keydown', shortcut, true);
+    return () => document.removeEventListener('keydown', shortcut, true);
+  });
   function newTab(priv = false) {
     const id = ++seq.current;
     setTabs((t) => [
@@ -186,7 +235,7 @@ export function Browser() {
       if (!/^(https?:\/\/)/.test(url))
         url = /^[\w.-]+\.[\w.-]+(?:\/.*)?$/.test(url)
           ? `https://${url}`
-          : `https://index.root/search?q=${encodeURIComponent(url)}`;
+          : `https://www.google.com/search?q=${encodeURIComponent(url)}`;
       try {
         const parsed = new URL(url);
         if (!['http:', 'https:'].includes(parsed.protocol)) throw Error();
@@ -214,8 +263,8 @@ export function Browser() {
     setDraft(url);
     setMenu(false);
     setAddressFocus(false);
-    setLoading(true);
     setFindText('');
+    content.current?.scrollTo({ top: 0 });
   }
   function back(delta: number) {
     setTabs((t) =>
@@ -226,6 +275,10 @@ export function Browser() {
           : tab;
       }),
     );
+    content.current?.scrollTo({ top: 0 });
+  }
+  function refresh() {
+    setRefreshCount((count) => count + 1);
   }
   function bookmark() {
     const exists = bookmarks.some((b) => b.url === activeTab.url);
@@ -252,10 +305,12 @@ export function Browser() {
     : 0;
   let host = '';
   let query = '';
+  let searchCategory = 'all';
   try {
     const u = new URL(activeTab.url);
     host = u.hostname;
     query = u.searchParams.get('q') || '';
+    searchCategory = u.searchParams.get('tbm') || 'all';
   } catch {}
   const firefoxDark =
     browserTheme === 'dark' || (browserTheme === 'system' && settings.theme === 'breeze-dark');
@@ -263,27 +318,6 @@ export function Browser() {
     <div
       className={`firefox ${firefoxDark ? 'firefox-dark' : ''} ${activeTab.private ? 'private-window' : ''}`}
       onKeyDown={(e) => {
-        if ((e.ctrlKey || e.metaKey) && ['l', 't', 'w', 'f', 'd'].includes(e.key.toLowerCase())) {
-          e.preventDefault();
-          e.stopPropagation();
-          switch (e.key.toLowerCase()) {
-            case 'l':
-              address.current?.focus();
-              address.current?.select();
-              break;
-            case 't':
-              newTab(e.shiftKey);
-              break;
-            case 'w':
-              closeTab(active);
-              break;
-            case 'f':
-              setFind(true);
-              break;
-            case 'd':
-              bookmark();
-          }
-        }
         if (e.key === 'Escape') {
           setMenu(false);
           setAddressFocus(false);
@@ -317,10 +351,18 @@ export function Browser() {
               >
                 {tab.private ? (
                   <Shield size={15} />
+                ) : tab.url.includes('github.com') ? (
+                  <span className="firefox-site-favicon github">◉</span>
+                ) : tab.url.includes('threads.net') ? (
+                  <span className="firefox-site-favicon threads">◎</span>
+                ) : tab.url.includes('google.com') ? (
+                  <img src="/assets/google-favicon.ico" alt="" width={16} height={16} />
+                ) : tab.url.includes('projectroot.kro.kr') ? (
+                  <img src="/brand/project-root-mark.svg" alt="" width={16} height={16} />
                 ) : (
                   <img src="/assets/icons/firefox.png" alt="" width={16} height={16} />
                 )}
-                <span>{titleFor(tab.url)}</span>
+                <span>{tab.id === active && loading ? '연결 중…' : titleFor(tab.url)}</span>
               </button>
               <button aria-label={`${titleFor(tab.url)} 탭 닫기`} onClick={() => closeTab(tab.id)}>
                 <X size={13} />
@@ -349,7 +391,7 @@ export function Browser() {
         >
           <ArrowRight size={18} />
         </ToolButton>
-        <ToolButton label="새로 고침" onClick={() => setLoading(true)}>
+        <ToolButton label="새로 고침" onClick={refresh}>
           {loading ? <X size={18} /> : <RotateCw size={17} />}
         </ToolButton>
         <ToolButton label="홈" onClick={() => navigate('about:newtab')}>
@@ -376,7 +418,7 @@ export function Browser() {
               setAddressFocus(true);
             }}
             onBlur={() => setTimeout(() => setAddressFocus(false), 150)}
-            placeholder="Index 검색 또는 주소 입력"
+            placeholder="Google 검색 또는 주소 입력"
             autoComplete="off"
             spellCheck={false}
           />
@@ -472,8 +514,9 @@ export function Browser() {
       {menu && (
         <div className="firefox-menu">
           <button onClick={() => newTab()}>
-            <Plus size={17} />새 탭<kbd>Ctrl+T</kbd>
+            <Plus size={17} />새 탭<kbd>Alt+Shift+T</kbd>
           </button>
+          <small className="firefox-shortcut-note">게임 Firefox 단축키: Alt+Shift+T 새 탭 · W 닫기 · L 주소창 · F 찾기 · B 북마크</small>
           <button onClick={() => newTab(true)}>
             <Shield size={17} />새 사생활 보호 탭
           </button>
@@ -627,7 +670,15 @@ export function Browser() {
           </aside>
         )}
         <div className="firefox-page" ref={content} style={{ zoom: zoom / 100 }}>
-          {loading && <div className="firefox-loading" />}
+          {loading ? (
+            <div className="firefox-loading-view" role="status" aria-label="페이지 로딩 중">
+              <div className="firefox-loading" role="progressbar" aria-label="페이지 로딩 중">
+                <span />
+              </div>
+              <p>{host || '페이지'} 연결 중…</p>
+            </div>
+          ) : (
+          <>
           {addressError && <p role="alert">{addressError}</p>}
           {activeTab.url === 'about:newtab' ? (
             <div className="firefox-newtab">
@@ -661,7 +712,7 @@ export function Browser() {
                     letter: 'R',
                     color: '#193b59',
                   },
-                  { title: 'Index', url: 'https://index.root', letter: 'i', color: '#6847ed' },
+                  { title: 'Google', url: 'https://www.google.com', letter: 'G', color: '#4285f4' },
                 ].map((s) => (
                   <button key={s.title} onClick={() => navigate(s.url)}>
                     <span style={{ color: s.color }}>{s.letter}</span>
@@ -719,7 +770,7 @@ export function Browser() {
                 방문 기록 지우기
               </button>
               <h3>기본 검색</h3>
-              <p>Index · 워크스테이션 내부 검색</p>
+              <p>Google</p>
             </div>
           ) : activeTab.url === 'about:about' ? (
             <div className="firefox-about">
@@ -733,10 +784,10 @@ export function Browser() {
               <WifiOff size={65} strokeWidth={1} />
               <h1>오프라인 상태입니다.</h1>
               <p>인터넷에 연결되어 있지 않습니다. 시스템 트레이에서 네트워크 연결을 확인하세요.</p>
-              <button onClick={() => setLoading(true)}>다시 시도</button>
+              <button onClick={refresh}>다시 시도</button>
             </div>
-          ) : page ? (
-            <WorldSite kind={page.kind} navigate={navigate} />
+          ) : page && page.kind !== 'google' ? (
+            <WorldSite kind={page.kind} url={activeTab.url} navigate={navigate} />
           ) : host === 'portal.root' ? (
             <article className="intranet">
               <header>
@@ -764,52 +815,29 @@ export function Browser() {
                   Firefox로 정보를 찾고, Konsole로 기록을 확인하세요. 자료는 Dolphin에 정리하고 조사
                   내용은 Project Root에서 관리합니다.
                 </p>
-                <button onClick={() => navigate('https://index.root')}>
-                  Index 검색 열기 <ArrowRight size={15} />
+                <button onClick={() => navigate('https://www.google.com')}>
+                  Google 검색 열기 <ArrowRight size={15} />
                 </button>
               </section>
             </article>
-          ) : host === 'index.root' ? (
-            <div className={`index-page ${query ? 'results' : ''}`}>
-              <h1>
-                Index<span>.</span>
-              </h1>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  navigate(`https://index.root/search?q=${encodeURIComponent(pageSearch)}`);
-                }}
-              >
-                <Search size={19} />
-                <input
-                  aria-label="Index 검색"
-                  value={pageSearch}
-                  onChange={(e) => setPageSearch(e.target.value)}
-                  placeholder="사람, 기록, 연결을 찾아보세요."
-                />
-                <button type="submit">검색</button>
-              </form>
-              {query ? (
-                <div className="index-results">
-                  <small>“{query}” 검색 결과</small>
-                  {searchWorld(query).length ? (
-                    searchWorld(query).map((result) => (
-                      <article key={result.url}>
-                        <small>{result.url.replace('https://', '')}</small>
-                        <button onClick={() => navigate(result.url)}>{result.title}</button>
-                        <p>{result.description}</p>
-                      </article>
-                    ))
-                  ) : (
-                    <>
-                      <h2>일치하는 기록을 찾지 못했습니다.</h2>
-                      <p>검색어의 철자를 확인하거나 인물, 단체 이름으로 검색해 보세요.</p>
-                    </>
-                  )}
-                </div>
-              ) : (
-                <p>더 넓게 탐색하고, 더 깊게 연결하세요.</p>
-              )}
+          ) : ['google.com', 'www.google.com'].includes(host) ? (
+            <GoogleSearch
+              query={query}
+              category={searchCategory}
+              value={pageSearch}
+              setValue={setPageSearch}
+              navigate={navigate}
+              dark={firefoxDark}
+            />
+          ) : host.endsWith('.root.internal') ? (
+            <div className="firefox-error">
+              <Globe2 size={66} strokeWidth={1} />
+              <h1>내부 서비스를 사용할 수 없음</h1>
+              <p>
+                {host} 서비스는 현재 웹 탐색을 제공하지 않습니다. 워크스테이션의 내부 문서에서
+                지원되는 접근 방식을 확인하세요.
+              </p>
+              <button onClick={refresh}>다시 시도</button>
             </div>
           ) : (
             <div className="firefox-error">
@@ -821,15 +849,17 @@ export function Browser() {
                 <li>다른 페이지가 열리는지 확인하세요.</li>
                 <li>워크스테이션에 연결된 내부 사이트인지 확인하세요.</li>
               </ul>
-              <button onClick={() => setLoading(true)}>다시 시도</button>
+              <button onClick={refresh}>다시 시도</button>
             </div>
+          )}
+          </>
           )}
         </div>
       </div>
       {visitError && (
         <div className="native-inline-error" role="alert">
           {visitError}
-          <button onClick={() => setLoading(true)}>다시 시도</button>
+          <button onClick={refresh}>다시 시도</button>
         </div>
       )}
       {find && (

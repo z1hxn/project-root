@@ -48,6 +48,7 @@ export async function POST(request: Request, context: { params: Promise<{ action
           email,
           displayName: username,
           passwordHash: await hashPassword(password),
+          introCompleted: false,
         },
       });
       await createSession(user.id);

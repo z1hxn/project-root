@@ -10,8 +10,8 @@ import '@fontsource/jetbrains-mono/400.css';
 import './globals.css';
 import './plasma.css';
 export const metadata: Metadata = {
-  title: 'PROJECT ROOT — Trace the signal.',
-  description: '웹과 시스템에 남겨진 흔적을 추적하는 사이버 미스터리.',
+  title: 'PROJECT ROOT — 흩어진 단서, 하나의 진실.',
+  description: '가상의 웹사이트와 Linux 워크스테이션을 탐색하며 사건을 해결하는 온라인 추리 게임.',
 };
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (

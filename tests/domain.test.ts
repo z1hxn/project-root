@@ -150,76 +150,73 @@ test('essential directories reject delete, rename and cut atomically, while pers
 import {
   searchWorld,
   OFFICIAL_URL,
-  PROFILE_URL,
-  THREAD_URL,
+  GITHUB_URL,
+  THREADS_URL,
   canonicalWorldUrl,
 } from '../src/game/world';
 import { advanceProgress, readProgress } from '../src/game/missions';
-test('Index matches Korean and English aliases and uses exact virtual hosts', () => {
-  for (const query of [
-    '프로젝트루트',
-    '프로젝트 루트',
-    'PROJECT ROOT',
-    'projectroot',
-    'project root 공식사이트',
-    'projectroot.kro.kr',
-  ])
-    assert.equal(searchWorld(query)[0]?.url, OFFICIAL_URL);
-  assert.equal(searchWorld('아무 결과도 없는 검색어').length, 0);
-  assert.equal(searchWorld('윤서하').length, 2);
-  assert.equal(canonicalWorldUrl('http://www.projectroot.kro.kr/?from=index'), OFFICIAL_URL);
+import { buildEvidence, CHANGELOG_URL, CURRENT_RECORD_URL } from '../src/game/cases';
+test('Google virtual search and exact host routing', () => {
+  for (const query of ['프로젝트', '프로젝트루트', 'project', 'PROJECT ROOT', 'projectroot.kro.kr'])
+    assert.ok(searchWorld(query).some((x) => x.url === OFFICIAL_URL));
+  assert.ok(searchWorld('윤서하').some((x) => x.url === GITHUB_URL));
+  assert.ok(searchWorld('윤서하').some((x) => x.url === THREADS_URL));
+  assert.equal(canonicalWorldUrl('http://www.projectroot.kro.kr/?from=google'), OFFICIAL_URL);
   assert.equal(canonicalWorldUrl('https://projectroot.kro.kr.evil.test'), null);
-  assert.equal(canonicalWorldUrl('https://evil.test/?next=projectroot.kro.kr'), null);
+  assert.equal(canonicalWorldUrl('https://github.com/not-real'), null);
 });
-test('missions assign once, verify visited evidence, and retain history through rollback', () => {
+test('three cases advance in order and require their own evidence', () => {
   let progress = readProgress({});
-  assert.throws(() => advanceProgress(progress, { type: 'rollback', stage: 1 }), /아직 배정/);
-  let result = advanceProgress(progress, { type: 'visit', url: OFFICIAL_URL });
-  assert.equal(result.assigned, true);
-  progress = result.progress;
-  assert.equal(advanceProgress(progress, { type: 'visit', url: OFFICIAL_URL }).assigned, false);
-  assert.throws(
-    () =>
-      advanceProgress(progress, {
-        type: 'report',
-        handle: 'seoha_y',
-        sources: [PROFILE_URL, THREAD_URL],
-      }),
-    /직접 확인/,
-  );
-  for (const url of [PROFILE_URL, THREAD_URL])
-    progress = advanceProgress(progress, { type: 'visit', url }).progress;
-  assert.throws(
-    () =>
-      advanceProgress(progress, {
-        type: 'report',
-        handle: 'wrong',
-        sources: [PROFILE_URL, THREAD_URL],
-      }),
-    /계정/,
-  );
-  result = advanceProgress(progress, {
-    type: 'report',
-    handle: '@seoha_y',
-    sources: [PROFILE_URL, THREAD_URL],
-  });
-  assert.equal(result.completed, true);
-  progress = result.progress;
-  assert.equal(progress.stage, 2);
-  progress = advanceProgress(progress, { type: 'rollback', stage: 0 }).progress;
-  assert.equal(progress.stage, 0);
-  assert.equal(progress.highestStage, 2);
-  assert.deepEqual(progress.visited, []);
-  progress = advanceProgress(progress, { type: 'rollback', stage: 1 }).progress;
   assert.equal(progress.stage, 1);
-  assert.deepEqual(progress.visited, [OFFICIAL_URL]);
-  assert.throws(
-    () =>
-      advanceProgress(progress, {
-        type: 'report',
-        handle: 'seoha_y',
-        sources: [PROFILE_URL, THREAD_URL],
-      }),
-    /직접 확인/,
-  );
+  assert.throws(() => advanceProgress(progress, { type: 'rollback', stage: 3 }), /아직 배정/);
+  progress = advanceProgress(progress, { type: 'hint' }).progress;
+  assert.equal(progress.hintsUsed['1'], 1);
+  const link = { currentUrl: CURRENT_RECORD_URL, changeUrl: CHANGELOG_URL, conclusion: '주소 이동/갱신' as const, note: '공식 자료와 공개 변경 이력의 주소가 일치합니다.' };
+  assert.throws(() => advanceProgress(progress, { type: 'link-report', report: link }), /공식 자료/);
+  for (const url of [CURRENT_RECORD_URL, CHANGELOG_URL])
+    progress = advanceProgress(progress, { type: 'visit', url }).progress;
+  progress = advanceProgress(progress, { type: 'link-report', report: link }).progress;
+  assert.equal(progress.stage, 1);
+  assert.equal(progress.pendingStage, 2);
+  assert.equal(advanceProgress(progress, { type: 'activate' }, Date.parse(progress.nextMissionAt!) - 1).assigned, false);
+  progress = advanceProgress(progress, { type: 'activate' }, Date.parse(progress.nextMissionAt!)).progress;
+  assert.equal(progress.stage, 2);
+  const build = { classification: '예정된 자동 작업' as const, note: 'svc-build가 예약된 runner에서 service-token으로 실행했습니다.' };
+  assert.throws(() => advanceProgress(progress, { type: 'build-report', report: build }), /기록 세 개/);
+  for (const path of Object.values(buildEvidence))
+    progress = advanceProgress(progress, { type: 'evidence', path }).progress;
+  progress = advanceProgress(progress, { type: 'build-report', report: build }).progress;
+  assert.equal(progress.stage, 2);
+  assert.equal(progress.pendingStage, 3);
+  progress = advanceProgress(progress, { type: 'activate' }, Date.parse(progress.nextMissionAt!)).progress;
+  assert.equal(progress.stage, 3);
+  progress = advanceProgress(progress, { type: 'install', package: 'smbclient' }).progress;
+  for (const path of [
+    'auth/auth-2026-09-24.log',
+    'auth/auth-2026-09-26.log',
+    'build/build-runner.log',
+  ])
+    progress = advanceProgress(progress, { type: 'evidence', path }).progress;
+  progress = advanceProgress(progress, { type: 'visit', url: GITHUB_URL }).progress;
+  const report = {
+    normalEvidence: 'auth/auth-2026-09-24.log',
+    suspiciousEvidence: 'auth/auth-2026-09-26.log',
+    automationEvidence: 'build/build-runner.log',
+    publicCorroboration: GITHUB_URL,
+    assessment: '추가 확인 필요' as const,
+    analystNote:
+      '이전 정상 세션과 source가 다르고 자동 빌드 활동과도 구분됩니다. 주체는 확인되지 않았습니다.',
+  };
+  const result = advanceProgress(progress, { type: 'incident-report', report });
+  assert.equal(result.completed, true);
+  assert.equal(result.progress.stage, 4);
+  progress = advanceProgress(result.progress, { type: 'rollback', stage: 3 }).progress;
+  assert.equal(progress.stage, 3);
+  assert.equal(progress.highestStage, 4);
+  assert.deepEqual(progress.evidence, []);
+});
+test('previous mission saves retain internal-access progress', () => {
+  const migrated = readProgress({ stage: 1, highestStage: 1, installedPackages: { smbclient: true } });
+  assert.equal(migrated.stage, 3);
+  assert.equal(migrated.installedPackages.smbclient, true);
 });

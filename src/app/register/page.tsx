@@ -1,7 +1,9 @@
 import { redirect } from 'next/navigation';
 import { currentUser } from '@/server/auth';
 import { AuthForm } from '@/features/auth/AuthForm';
-export default async function Page() {
-  if (await currentUser()) redirect('/game');
-  return <AuthForm mode="register" />;
+import { safeReturnPath } from '@/lib/return-path';
+export default async function Page({ searchParams }: { searchParams: Promise<{ next?: string | string[] }> }) {
+  const next = safeReturnPath((await searchParams).next, '/game');
+  if (await currentUser()) redirect(next);
+  return <AuthForm mode="register" next={next} />;
 }

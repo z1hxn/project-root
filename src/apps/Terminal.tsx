@@ -2,16 +2,25 @@
 import { useEffect, useRef, useState } from 'react';
 import { Plus, X, Copy, Clipboard, SplitSquareHorizontal, Search } from 'lucide-react';
 import { useWorkspace } from '@/features/workspace/context';
-import { runCommand, homePath, directoryEntries, resolvePath, basename } from '@/game/filesystem';
+import {
+  runCommand,
+  homePath,
+  directoryEntries,
+  resolvePath,
+  basename,
+  writeFile,
+} from '@/game/filesystem';
+import { LOG_SHARE, logFiles, smbDirectory } from '@/game/virtualNetwork';
 import { NativeMenuBar, NativeDialog } from '@/components/ui/Native';
 interface TerminalSession {
   id: number;
   cwd: string;
   lines: { command: string; prompt: string; output: string }[];
   history: string[];
+  smbPath?: string;
 }
 export function TerminalApp() {
-  const { profile, files, setFiles } = useWorkspace();
+  const { profile, files, setFiles, installPackage, recordEvidence } = useWorkspace();
   const home = homePath(profile.username);
   const [sessions, setSessions] = useState<TerminalSession[]>([
     { id: 1, cwd: home, lines: [], history: [] },
@@ -25,43 +34,187 @@ export function TerminalApp() {
   const [search, setSearch] = useState(false);
   const [query, setQuery] = useState('');
   const [dialog, setDialog] = useState(false);
+  const [processingSessions, setProcessingSessions] = useState<number[]>([]);
+  const processingRef = useRef<Set<number>>(new Set());
   const input = useRef<HTMLInputElement>(null);
   const bottom = useRef<HTMLDivElement>(null);
   const seq = useRef(1);
   const session = sessions.find((s) => s.id === active)!;
+  const processing = processingSessions.includes(active);
   const cwd = session.cwd === home ? '~' : session.cwd.replace(home, '~');
-  const prompt = `${profile.username}@workstation:${cwd}$`;
+  const prompt =
+    session.smbPath === undefined
+      ? `${profile.username}@workstation:${cwd}$`
+      : `smb: \\${session.smbPath ? session.smbPath + '\\' : ''}>`;
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: 'nearest' });
   }, [session.lines]);
+  useEffect(() => {
+    if (!processing) input.current?.focus();
+  }, [processing, active]);
   function add() {
     const id = ++seq.current;
     setSessions((s) => [...s, { id, cwd: home, lines: [], history: [] }]);
     setActive(id);
     setCommand('');
   }
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!command.trim()) return;
+    if (!command.trim() || processingRef.current.has(active)) return;
     const history = [...session.history, command];
-    const result = runCommand(command, session.cwd, files, profile.username, history);
+    let smbPath = session.smbPath;
+    let result: ReturnType<typeof runCommand>;
+    if (smbPath !== undefined) {
+      const [operation, ...args] = command.trim().split(/\s+/);
+      const remote = (input: string) => resolvePath(input, `/${smbPath}`, '/').slice(1);
+      if (['quit', 'exit'].includes(operation)) {
+        smbPath = undefined;
+        result = { output: '', cwd: session.cwd, files };
+      } else if (operation === 'pwd') result = { output: `\\${smbPath}`, cwd: session.cwd, files };
+      else if (operation === 'help')
+        result = { output: 'ls [path]  cd <path>  get <file>  pwd  exit', cwd: session.cwd, files };
+      else if (operation === 'cd') {
+        const next = remote(args[0] || '/');
+        if (
+          next &&
+          !['deploy', 'archive'].includes(next) &&
+          !Object.keys(logFiles).some((p) => p.startsWith(next + '/'))
+        )
+          result = { output: 'NT_STATUS_OBJECT_PATH_NOT_FOUND', cwd: session.cwd, files };
+        else {
+          smbPath = next;
+          result = { output: '', cwd: session.cwd, files };
+        }
+      } else if (operation === 'ls' || operation === 'dir')
+        result = {
+          output:
+            smbDirectory(remote(args[0] || '.'))
+              .map((name) => `  ${name.padEnd(30)} ${name.endsWith('/') ? 'D' : 'A'}`)
+              .join('\n') || '  .',
+          cwd: session.cwd,
+          files,
+        };
+      else if (operation === 'get') {
+        const path = remote(args[0] || '');
+        const content = logFiles[path];
+        result =
+          content === undefined
+            ? { output: `NT_STATUS_OBJECT_NAME_NOT_FOUND: ${path}`, cwd: session.cwd, files }
+            : {
+                output: `getting file \\${path} as ${basename(path)} (read-only source)`,
+                cwd: session.cwd,
+                files: writeFile(files, `${home}/Downloads/${basename(path)}`, content),
+                evidence: path,
+              };
+      } else
+        result = { output: `Unknown command: ${operation}. Type help.`, cwd: session.cwd, files };
+    } else
+      result = runCommand(
+        command,
+        session.cwd,
+        files,
+        profile.username,
+        history,
+        profile.gameProgress.installedPackages,
+      );
+    if (result.enterSmb) smbPath = '';
+    const nextSmbPath = smbPath;
+    const progressive =
+      /^(?:sudo\s+)?apt(?:-get)?\s+(?:update|install)\b/.test(command) || !!result.evidence;
+    const outputSteps = result.evidence
+      ? [
+          `Connecting to ${LOG_SHARE}...`,
+          'Accessing read-only logs share...',
+          `Receiving ${basename(result.evidence)}...`,
+          result.output,
+        ]
+      : result.output.split('\n');
+    if (progressive) {
+      processingRef.current.add(active);
+      setProcessingSessions([...processingRef.current]);
+    }
     setSessions((s) =>
       s.map((x) =>
         x.id === active
           ? {
               ...x,
               cwd: result.cwd,
+              smbPath: nextSmbPath,
               history: history.slice(-200),
               lines: result.clear
                 ? []
-                : [...x.lines.slice(-199), { command, prompt, output: result.output }],
+                : [
+                    ...x.lines.slice(-199),
+                    { command, prompt, output: progressive ? '' : result.output },
+                  ],
             }
           : x,
       ),
     );
-    if (result.files !== files) setFiles(result.files);
     setCommand('');
     setIndex(-1);
+    if (progressive) {
+      let shown = '';
+      for (const step of outputSteps) {
+        await new Promise<void>((resolve) =>
+          setTimeout(
+            resolve,
+            result.installPackage
+              ? 450 + Math.random() * 350
+              : result.evidence
+                ? 350 + Math.random() * 300
+                : 300 + Math.random() * 250,
+          ),
+        );
+        shown += (shown ? '\n' : '') + step;
+        const output = shown;
+        setSessions((s) =>
+          s.map((x) =>
+            x.id === active
+              ? {
+                  ...x,
+                  lines: x.lines.map((line, i) =>
+                    i === x.lines.length - 1 ? { ...line, output } : line,
+                  ),
+                }
+              : x,
+          ),
+        );
+      }
+    }
+    if (result.evidence)
+      setFiles((current) =>
+        writeFile(
+          current,
+          `${home}/Downloads/${basename(result.evidence!)}`,
+          logFiles[result.evidence!],
+        ),
+      );
+    else if (result.files !== files) setFiles(result.files);
+    try {
+      if (result.installPackage) await installPackage();
+      if (result.evidence) await recordEvidence(result.evidence);
+    } catch (error) {
+      setSessions((s) =>
+        s.map((x) =>
+          x.id === active
+            ? {
+                ...x,
+                lines: [
+                  ...x.lines,
+                  {
+                    command: '',
+                    prompt: '',
+                    output: error instanceof Error ? error.message : '진행 상태 저장 실패',
+                  },
+                ],
+              }
+            : x,
+        ),
+      );
+    }
+    processingRef.current.delete(active);
+    setProcessingSessions([...processingRef.current]);
   }
   function key(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'ArrowUp') {
@@ -213,22 +366,28 @@ export function TerminalApp() {
                 <pre>{line.output}</pre>
               </div>
             ))}
-          <form onSubmit={submit}>
-            <label className="shell-prompt" htmlFor="konsole-command">
-              {prompt}
-            </label>
-            <input
-              ref={input}
-              id="konsole-command"
-              aria-label="터미널 명령어"
-              value={command}
-              onChange={(e) => setCommand(e.target.value)}
-              onKeyDown={key}
-              autoComplete="off"
-              spellCheck={false}
-              maxLength={1000}
-            />
-          </form>
+          {processing ? (
+            <p role="status" className="konsole-processing">
+              작업을 진행하고 있습니다…
+            </p>
+          ) : (
+            <form onSubmit={submit}>
+              <label className="shell-prompt" htmlFor="konsole-command">
+                {prompt}
+              </label>
+              <input
+                ref={input}
+                id="konsole-command"
+                aria-label="터미널 명령어"
+                value={command}
+                onChange={(e) => setCommand(e.target.value)}
+                onKeyDown={key}
+                autoComplete="off"
+                spellCheck={false}
+                maxLength={1000}
+              />
+            </form>
+          )}
           <div ref={bottom} />
         </div>
         {split && (
@@ -259,7 +418,7 @@ export function TerminalApp() {
         </div>
       )}
       <footer className="native-status">
-        <span>기본 프로필</span>
+        <span>{processing ? '실행 중…' : '기본 프로필'}</span>
         <span>UTF-8 · bash · {session.cwd}</span>
       </footer>
       {dialog && (

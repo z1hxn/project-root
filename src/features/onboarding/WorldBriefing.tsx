@@ -4,7 +4,7 @@ import { ArrowLeft, ArrowRight, Globe2, Network, Monitor, Search, Check } from '
 import { RootIcon } from '@/components/desktop/AppIcon';
 const chapters = [
   {
-    label: '01 / THE WORLD',
+    label: '01 / 기록이 남는 세계',
     icon: Globe2,
     title: '지워진 것에도 흔적은 남습니다.',
     text: '사람과 기업, 그리고 수많은 서비스가 연결된 세계. 사건은 화면 밖에서 일어나지만, 그 흔적은 이메일과 웹페이지, 계정과 서버의 기록 속에 남습니다.',
@@ -18,7 +18,7 @@ const chapters = [
     detail: '누가, 언제, 어디에서. 그리고 왜. 가정과 사실을 구분하고, 증거로 설명하세요.',
   },
   {
-    label: '03 / YOUR WORKSTATION',
+    label: '03 / 조사 워크스테이션',
     icon: Monitor,
     title: '업무에 필요한 도구는 여기 있습니다.',
     text: '지급된 Debian 워크스테이션에서 Firefox로 웹을 탐색하고, Konsole로 기록을 읽고, Dolphin으로 자료를 관리하세요. KMail에는 동료의 연락과 사건 안내가 도착합니다.',
@@ -26,12 +26,12 @@ const chapters = [
       'Project Root 앱은 사건의 목표, 수집한 정보와 증거를 한곳에 모읍니다. 내 프로필과 세션 종료도 이곳에서 관리합니다.',
   },
   {
-    label: '04 / YOUR FIRST STEP',
+    label: '04 / 첫 사건',
     icon: Search,
     title: '정답보다, 연결을 찾으세요.',
     text: '사건은 무엇을 조사해야 하는지 알려줍니다. 어떤 경로로 답에 도달할지는 당신에게 달려 있습니다. 작은 사용자명 하나, 오래된 문서 한 줄이 다음 단서가 될 수 있습니다.',
     detail:
-      '안내를 마치면 첫 탐색 임무가 배정됩니다. 컴퓨터를 자유롭게 둘러보며 다음 조사 임무를 기다리세요. 이 안내는 Project Root의 “세계관 안내”에서 다시 볼 수 있습니다.',
+      '첫 사건 ‘사라진 링크’에서는 메일의 요청을 읽고 현재 공식 자료와 공개 변경 이력을 비교합니다. 이 안내는 Project Root의 “세계관 안내”에서 다시 볼 수 있습니다.',
   },
 ];
 export function WorldBriefing({
@@ -67,7 +67,7 @@ export function WorldBriefing({
         <span>
           <RootIcon size={28} /> PROJECT ROOT
         </span>
-        <small>NEW ANALYST ORIENTATION</small>
+        <small>조사관 안내</small>
       </header>
       <div className="briefing-scene">
         <div className="briefing-orbit" />

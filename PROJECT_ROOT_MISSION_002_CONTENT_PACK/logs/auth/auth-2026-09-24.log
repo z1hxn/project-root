@@ -1,0 +1,6 @@
+2026-09-24T08:58:40+09:00 account=yseoha service=dev-portal source=ws-17.root.internal result=success session=usr-d02a method=password+mfa
+2026-09-24T10:21:17+09:00 account=yseoha service=git-gateway source=ws-17.root.internal result=success session=usr-d991 method=sso
+2026-09-24T13:14:08+09:00 account=jpark service=dev-portal source=ws-21.root.internal result=success session=usr-883d method=sso
+2026-09-24T16:36:55+09:00 account=yseoha service=archive-api source=ws-17.root.internal result=success session=usr-e310 method=sso
+2026-09-24T18:42:11+09:00 account=yseoha service=dev-portal source=ws-17.root.internal result=success session=usr-e8c2 method=sso
+2026-09-24T22:10:00+09:00 account=svc-backup service=storage source=backup-01.root.internal result=success session=svc-a019 method=service-token

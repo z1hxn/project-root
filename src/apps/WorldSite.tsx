@@ -1,54 +1,35 @@
 'use client';
-import {
-  ArrowUpRight,
-  ArrowRight,
-  FileText,
-  Globe2,
-  ShieldCheck,
-  MessageSquare,
-  MapPin,
-  BriefcaseBusiness,
-} from 'lucide-react';
+import { ArrowRight, FileText, Globe2, ShieldCheck } from 'lucide-react';
 import { RootIcon } from '@/components/desktop/AppIcon';
-import { OFFICIAL_URL, PROFILE_URL, THREAD_URL } from '@/game/world';
+import { OFFICIAL_URL, worldPage } from '@/game/world';
+import { CHANGELOG_URL, CURRENT_RECORD_URL, OLD_RECORD_URL } from '@/game/cases';
+import fixture from '@/game/virtual-web-fixtures.json';
+type Navigate = (url: string) => void;
 export function WorldSite({
   kind,
+  url,
   navigate,
 }: {
-  kind: 'official' | 'profile' | 'thread';
-  navigate: (url: string) => void;
+  kind: 'official' | 'github' | 'threads' | 'not-found' | 'auth';
+  url: string;
+  navigate: Navigate;
 }) {
+  const page = worldPage(url);
+  if (kind === 'official' && page?.url === CURRENT_RECORD_URL)
+    return <article className="root-public-site"><header><button onClick={() => navigate(OFFICIAL_URL)}><RootIcon size={31} /><strong>PROJECT ROOT</strong></button></header><section className="public-section"><span>PUBLIC RECORDS / UPDATED 2026-09-24</span><h1>공개 기록 보존 안내</h1><p>공개 자료의 보존 안내를 새 주소로 옮겼습니다. 기존 자료는 삭제하지 않았으며 내용과 출처를 유지합니다.</p><p>이전 주소: {OLD_RECORD_URL}</p><p>현재 주소: {CURRENT_RECORD_URL}</p><button onClick={() => navigate(CHANGELOG_URL)}>공개 변경 이력 확인 →</button></section></article>;
   if (kind === 'official')
     return (
-      <article
-        className="root-public-site"
-        onClick={(e) => {
-          const link = (e.target as HTMLElement).closest<HTMLAnchorElement>('a[href^="#"]');
-          if (link) {
-            e.preventDefault();
-            const id = link.getAttribute('href')?.slice(1);
-            if (id)
-              e.currentTarget
-                .querySelector(`[id="${id}"]`)
-                ?.scrollIntoView({ block: 'start', behavior: 'smooth' });
-          }
-        }}
-      >
+      <article className="root-public-site">
         <header>
-          <a
-            href="#"
-            onClick={(e) => {
-              e.preventDefault();
-              navigate(OFFICIAL_URL);
-            }}
-          >
+          <button onClick={() => navigate(OFFICIAL_URL)}>
             <RootIcon size={31} />
             <strong>PROJECT ROOT</strong>
-          </a>
+          </button>
           <nav>
             <a href="#about">단체 소개</a>
             <a href="#principles">조사 원칙</a>
             <a href="#partners">협력 소식</a>
+            <button onClick={() => navigate(CURRENT_RECORD_URL)}>공개 자료</button>
           </nav>
         </header>
         <section className="public-hero">
@@ -59,16 +40,12 @@ export function WorldSite({
               <br />
               사실을 연결합니다.
             </h1>
-            <p>
-              복잡한 디지털 환경 속에서 흩어진 사실을 찾습니다.
-              <br />
-              PROJECT ROOT는 공개 정보와 허가된 기록을 분석하는 독립 조사 조직입니다.
-            </p>
+            <p>PROJECT ROOT는 공개 정보와 허가된 기록을 분석하는 독립 조사 조직입니다.</p>
             <a href="#about">
               우리가 하는 일 <ArrowRight size={17} />
             </a>
           </div>
-          <div className="public-diagram" aria-hidden="true">
+          <div className="public-diagram">
             <span>RECORD</span>
             <i />
             <RootIcon size={88} />
@@ -85,9 +62,9 @@ export function WorldSite({
           </p>
           <div className="public-services">
             {[
-              [Globe2, '공개 정보 조사', '웹과 공개 프로필, 커뮤니티의 기록을 살펴봅니다.'],
-              [FileText, '기록 분석', '시간과 출처를 확인하고 자료 사이의 관계를 찾습니다.'],
-              [ShieldCheck, '검증 가능한 보고', '추측과 사실을 구분하고 근거를 남깁니다.'],
+              [Globe2, '공개 정보 조사', '웹과 공개 기록을 살펴봅니다.'],
+              [FileText, '기록 분석', '시간과 출처를 확인합니다.'],
+              [ShieldCheck, '검증 가능한 보고', '추측과 사실을 구분합니다.'],
             ].map(([Icon, title, copy]) => {
               const I = Icon as typeof Globe2;
               return (
@@ -106,17 +83,15 @@ export function WorldSite({
           <div>
             <p>
               <b>01</b>
-              <strong>범위를 지킵니다.</strong>공개 자료와 정당하게 접근이 허가된 기록만 조사합니다.
+              <strong>범위를 지킵니다.</strong>공개 자료와 접근이 허가된 기록만 조사합니다.
             </p>
             <p>
               <b>02</b>
-              <strong>출처를 남깁니다.</strong>확인한 사실을 다른 사람이 검증할 수 있도록
-              기록합니다.
+              <strong>출처를 남깁니다.</strong>다른 사람이 검증할 수 있게 기록합니다.
             </p>
             <p>
               <b>03</b>
-              <strong>성급하게 단정하지 않습니다.</strong>동일한 이름이나 계정만으로 관계를 확정하지
-              않습니다.
+              <strong>성급하게 단정하지 않습니다.</strong>확인된 사실과 가능성을 구분합니다.
             </p>
           </div>
         </section>
@@ -125,130 +100,331 @@ export function WorldSite({
           <h2>기록을 다루는 사람들과 함께합니다.</h2>
           <div className="public-partner">
             <div>
-              <small>협력 기관 · 해온 데이터 연구소</small>
-              <h3>공개 데이터 아카이브의 연결성 연구</h3>
-              <p>
-                연구원 윤서하는 공개 기록의 보존과 접근성을 연구합니다. 최근 프로젝트 소식과
-                연구원의 공개 활동은 외부 프로필에서 확인할 수 있습니다.
-              </p>
+              <small>협력 기관</small>
+              <h3>기록의 연결성과 보존</h3>
+              <p>기관 간 협력과 공개 자료의 신뢰성을 연구합니다.</p>
             </div>
-            <button onClick={() => navigate(PROFILE_URL)}>
-              연구원 공개 프로필 <ArrowUpRight size={17} />
-            </button>
           </div>
         </section>
         <footer>
           <strong>PROJECT ROOT</strong>
           <span>Digital investigation, grounded in evidence.</span>
-          <small>© PROJECT ROOT · 공개 정보 조사 및 기록 분석</small>
         </footer>
       </article>
     );
-  if (kind === 'profile')
+  if (page?.service === 'github')
     return (
-      <article className="profile-site">
+      <GitHub
+        url={url}
+        navigate={navigate}
+        notFound={kind === 'not-found'}
+        auth={kind === 'auth'}
+      />
+    );
+  if (page?.service === 'threads')
+    return (
+      <Threads
+        url={url}
+        navigate={navigate}
+        notFound={kind === 'not-found'}
+        auth={kind === 'auth'}
+      />
+    );
+  if (kind === 'not-found')
+    return (
+      <article className="root-public-site">
         <header>
-          <strong>
-            Profile<span>●</span>
-          </strong>
-          <button onClick={() => navigate('https://index.root')}>검색으로 돌아가기</button>
+          <button onClick={() => navigate(OFFICIAL_URL)}>
+            <RootIcon size={31} />
+            <strong>PROJECT ROOT</strong>
+          </button>
         </header>
-        <div className="profile-cover" />
-        <main>
-          <div className="profile-avatar">서하</div>
-          <div className="profile-intro">
-            <div>
-              <h1>윤서하</h1>
-              <p>공개 데이터 아카이브 연구원</p>
-              <small>
-                <BriefcaseBusiness size={14} /> 해온 데이터 연구소 · <MapPin size={14} /> 서울
-              </small>
-            </div>
-            <span>공개 프로필</span>
-          </div>
-          <section>
-            <h2>소개</h2>
-            <p>
-              사라지기 쉬운 공개 기록이 어떻게 연결되고 보존되는지 연구합니다. 데이터의 내용만큼
-              출처와 갱신 시각을 중요하게 생각합니다.
-            </p>
-            <dl>
-              <dt>공개 사용자명</dt>
-              <dd>seoha_y</dd>
-              <dt>소속</dt>
-              <dd>해온 데이터 연구소</dd>
-              <dt>연구 분야</dt>
-              <dd>공개 데이터 · 디지털 아카이브 · 기록 보존</dd>
-            </dl>
-          </section>
-          <section>
-            <h2>최근 활동</h2>
-            <small>2026년 9월 24일</small>
-            <h3>공개 아카이브 색인 갱신</h3>
-            <p>
-              이번 주 변경 사항을 공개 데이터 커뮤니티에 정리했습니다. 원문 링크가 이동한 자료는
-              갱신된 색인에서 확인할 수 있습니다.
-            </p>
-            <button onClick={() => navigate(THREAD_URL)}>
-              Threads의 공개 글 보기 <ArrowUpRight size={15} />
-            </button>
-          </section>
-          <aside>공개 프로필 정보는 작성자가 제공했습니다. 다른 출처와 함께 확인하세요.</aside>
-        </main>
+        <section className="public-section">
+          <h1>페이지를 찾을 수 없습니다.</h1>
+          {url.includes('/resources/archive-guide') && <p>요청한 공개 자료 주소가 더 이상 이 위치에 없습니다. 자료 제목으로 검색하거나 공개 자료 목록을 확인해 주세요.</p>}
+          <button onClick={() => navigate(OFFICIAL_URL)}>홈으로 돌아가기</button>
+        </section>
       </article>
     );
   return (
-    <article className="threads-site">
+    <div className="virtual-service">
+      <h1>Page not found</h1>
+    </div>
+  );
+}
+function GitHub({
+  url,
+  navigate,
+  notFound,
+  auth,
+}: {
+  url: string;
+  navigate: Navigate;
+  notFound: boolean;
+  auth: boolean;
+}) {
+  const parts = new URL(url).pathname.split('/').filter(Boolean);
+  const handle = parts[0];
+  const user = fixture.github.users[handle as keyof typeof fixture.github.users];
+  const repo = fixture.github.repos[`${handle}/${parts[1]}` as keyof typeof fixture.github.repos];
+  return (
+    <div className="virtual-service github-service">
       <header>
-        <strong>
-          <MessageSquare size={24} /> Threads
-        </strong>
-        <span>공개 데이터 커뮤니티</span>
+        <button onClick={() => navigate('https://github.com')}>◉ GitHub</button>
+        <button onClick={() => navigate('https://github.com')}>Explore</button>
+        <button onClick={() => navigate('https://github.com')}>Repositories</button>
+        <button onClick={() => navigate('https://github.com/login')}>Sign in</button>
       </header>
-      <main>
-        <aside>
-          <b>t / open-data</b>
+      {auth ? (
+        <main className="virtual-auth">
+          <h1>Sign in to GitHub</h1>
           <p>
-            기록을 모으고,
-            <br />
-            지식을 나눕니다.
+            Public pages are available without signing in. This workspace does not provide a GitHub
+            account.
           </p>
-          <small>자료 공유 · 아카이브 · 토론</small>
-        </aside>
-        <section>
-          <div className="thread-breadcrumb">open-data / 기록 보존</div>
-          <h1>공개 아카이브 색인 갱신 안내</h1>
-          <div className="thread-author">
-            <span>SY</span>
+          <button onClick={() => navigate('https://github.com')}>Explore public content</button>
+        </main>
+      ) : notFound ? (
+        <main>
+          <h1>404 — Page not found</h1>
+          <p>The page you&apos;re looking for doesn&apos;t exist.</p>
+        </main>
+      ) : parts.length === 0 ? (
+        <main>
+          <h1>Where the world builds software</h1>
+          <p>Explore public projects and developers.</p>
+          <div className="virtual-cards">
+            {Object.entries(fixture.github.users).map(([name, u]) => (
+              <button key={name} onClick={() => navigate(`https://github.com/${name}`)}>
+                <strong>{u.name}</strong>
+                <small>@{name}</small>
+                <p>{u.bio}</p>
+              </button>
+            ))}
+          </div>
+        </main>
+      ) : parts.length === 1 && user ? (
+        <main>
+          <div className="virtual-profile-head">
+            <div className="virtual-avatar">{user.name.slice(0, 1)}</div>
             <div>
-              <strong>seoha_y</strong>
-              <small>2026. 09. 24. 14:20 · 공개 게시물</small>
+              <h1>{user.name}</h1>
+              <p>@{handle}</p>
+              <p>{user.bio}</p>
+              {'location' in user && <small>{user.location}</small>}
             </div>
           </div>
-          <div className="thread-copy">
-            <p>안녕하세요. 해온 데이터 연구소의 윤서하입니다.</p>
-            <p>
-              공개 아카이브의 9월 색인을 갱신했습니다. 일부 원문 주소가 변경되어 기존 링크로는
-              자료를 찾기 어려울 수 있습니다. 이번 갱신에서는 원문 출처와 마지막 확인 시각을 함께
-              정리했습니다.
-            </p>
-            <p>
-              주소가 바뀌었다는 이유만으로 자료가 삭제됐다고 판단하지는 말아 주세요. 기록을 인용할
-              때는 출처의 갱신일도 함께 확인하면 좋겠습니다.
-            </p>
-            <p>작성자와 연구 활동은 제 공개 프로필에서도 확인하실 수 있습니다.</p>
-            <button onClick={() => navigate(PROFILE_URL)}>
-              윤서하 · Profile <ArrowUpRight size={15} />
-            </button>
+          <nav>Overview　 Repositories　 Activity</nav>
+          <h2>Public repositories</h2>
+          <div className="virtual-cards">
+            {user.repos.map((name) => (
+              <button key={name} onClick={() => navigate(`https://github.com/${handle}/${name}`)}>
+                <strong>{name}</strong>
+                <p>
+                  {fixture.github.repos[`${handle}/${name}` as keyof typeof fixture.github.repos]
+                    ?.description || 'Public repository'}
+                </p>
+              </button>
+            ))}
           </div>
-          <footer>원문 출처: threads.root/t/archive-update · 수정되지 않은 공개 기록</footer>
-          <div className="thread-comment">
-            <b>archive_reader</b>
-            <small>2026. 09. 24. 16:03</small>
-            <p>업데이트 감사합니다. 출처 확인 시각까지 함께 기록하겠습니다.</p>
-          </div>
-        </section>
+          {'lastActivity' in user && (
+            <p>
+              Recent activity ·{' '}
+              {new Date(user.lastActivity).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })} KST
+            </p>
+          )}
+        </main>
+      ) : repo ? (
+        <main>
+          <small>
+            <button onClick={() => navigate(`https://github.com/${handle}`)}>{handle}</button> /{' '}
+            {parts[1]}
+          </small>
+          <h1>{parts[1]}</h1>
+          <p>{repo.description}</p>
+          <nav>Code　 Issues　 Pull requests　 Actions</nav>
+          <h2>Activity</h2>
+          {repo.activity.map((item) => (
+            <article key={item.message}>
+              <strong>{item.type}</strong>
+              <p>{item.message}</p>
+              <small>
+                {new Date(item.time).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })} KST
+              </small>
+            </article>
+          ))}
+        </main>
+      ) : (
+        <main>
+          <h1>404 — Page not found</h1>
+        </main>
+      )}
+    </div>
+  );
+}
+function Threads({
+  url,
+  navigate,
+  notFound,
+  auth,
+}: {
+  url: string;
+  navigate: Navigate;
+  notFound: boolean;
+  auth: boolean;
+}) {
+  const parsed = new URL(url);
+  const parts = parsed.pathname.split('/').filter(Boolean);
+  const handle = parts[0]?.replace(/^@/, '') || '';
+  const user = fixture.threads.users[handle as keyof typeof fixture.threads.users];
+  const post = user?.posts.find((p) => p.id === parts[2]);
+  const query = parsed.searchParams.get('q') || '';
+  return (
+    <div className="virtual-service threads-service">
+      <header>
+        <button onClick={() => navigate('https://www.threads.net')}>◎ Threads</button>
+        <button onClick={() => navigate('https://www.threads.net')}>Home</button>
+        <button onClick={() => navigate('https://www.threads.net/search')}>Search</button>
+        <button onClick={() => navigate('https://www.threads.net/login')}>Log in</button>
+      </header>
+      <main>
+        {auth ? (
+          <section className="virtual-auth">
+            <h1>Log in to Threads</h1>
+            <p>Public profiles and posts can be read without an account.</p>
+            <button onClick={() => navigate('https://www.threads.net')}>Browse public posts</button>
+          </section>
+        ) : notFound ? (
+          <>
+            <h1>{parts.includes('post') ? 'Post not found' : 'User not found'}</h1>
+            <p>The profile or post you&apos;re looking for doesn&apos;t exist.</p>
+          </>
+        ) : parts.length === 0 ? (
+          <>
+            <h1>Threads</h1>
+            <p>공개된 대화와 사람들의 최신 글을 살펴보세요.</p>
+            {Object.entries(fixture.threads.users).flatMap(([name, u]) =>
+              u.posts
+                .slice(0, 1)
+                .map((p) => (
+                  <Post
+                    key={p.id}
+                    handle={name}
+                    name={u.displayName}
+                    post={p}
+                    navigate={navigate}
+                  />
+                )),
+            )}
+          </>
+        ) : parts[0] === 'search' ? (
+          <>
+            <h1>Search</h1>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const input = new FormData(e.currentTarget).get('q');
+                navigate(
+                  `https://www.threads.net/search?q=${encodeURIComponent(String(input || ''))}`,
+                );
+              }}
+            >
+              <input name="q" defaultValue={query} aria-label="Threads 검색" placeholder="Search" />
+              <button>검색</button>
+            </form>
+            {Object.entries(fixture.threads.users)
+              .filter(
+                ([name, u]) =>
+                  !query ||
+                  `${name} ${u.displayName} ${u.bio}`.toLowerCase().includes(query.toLowerCase()),
+              )
+              .map(([name, u]) => (
+                <button
+                  className="virtual-user-row"
+                  key={name}
+                  onClick={() => navigate(`https://www.threads.net/@${name}`)}
+                >
+                  <strong>{u.displayName}</strong>
+                  <span>@{name}</span>
+                  <p>{u.bio}</p>
+                </button>
+              ))}
+            <h2>Posts</h2>
+            {Object.entries(fixture.threads.users).flatMap(([name, u]) =>
+              u.posts
+                .filter(
+                  (p) =>
+                    !query ||
+                    `${name} ${u.displayName} ${p.text}`
+                      .toLowerCase()
+                      .includes(query.toLowerCase()),
+                )
+                .map((p) => (
+                  <Post
+                    key={p.id}
+                    handle={name}
+                    name={u.displayName}
+                    post={p}
+                    navigate={navigate}
+                  />
+                )),
+            )}
+          </>
+        ) : user ? (
+          <>
+            <div className="virtual-profile-head">
+              <div className="virtual-avatar">{user.displayName.slice(0, 1)}</div>
+              <div>
+                <h1>{user.displayName}</h1>
+                <p>@{handle}</p>
+                <p>{user.bio}</p>
+              </div>
+            </div>
+            <nav>Threads　 Replies　 Media</nav>
+            {post ? (
+              <>
+                <Post handle={handle} name={user.displayName} post={post} navigate={navigate} />
+                <h2>Replies</h2>
+                <p>아직 표시할 답글이 없습니다.</p>
+              </>
+            ) : (
+              user.posts.map((p) => (
+                <Post
+                  key={p.id}
+                  handle={handle}
+                  name={user.displayName}
+                  post={p}
+                  navigate={navigate}
+                />
+              ))
+            )}
+          </>
+        ) : null}
       </main>
+    </div>
+  );
+}
+function Post({
+  handle,
+  name,
+  post,
+  navigate,
+}: {
+  handle: string;
+  name: string;
+  post: { id: string; time: string; text: string };
+  navigate: Navigate;
+}) {
+  return (
+    <article className="virtual-post">
+      <button onClick={() => navigate(`https://www.threads.net/@${handle}`)}>
+        <strong>{name}</strong> @{handle}
+      </button>
+      <small>{new Date(post.time).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })} KST</small>
+      <p>{post.text}</p>
+      <button onClick={() => navigate(`https://www.threads.net/@${handle}/post/${post.id}`)}>
+        ♡　↗　답글 보기
+      </button>
     </article>
   );
 }

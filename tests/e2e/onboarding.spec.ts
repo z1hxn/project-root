@@ -20,8 +20,7 @@ async function osLogin(page: Page) {
   await expect(page.getByRole('main', { name: 'OS 로그인', exact: true })).toBeVisible({
     timeout: 12000,
   });
-  await page.getByLabel('OS 로그인 비밀번호').fill(password);
-  await page.getByRole('button', { name: 'OS 로그인', exact: true }).click();
+  await page.getByRole('button', { name: '워크스테이션 열기' }).click();
 }
 test('new analyst: KDE workspace, native applications, persistence and session lifecycle', async ({
   page,
@@ -30,47 +29,37 @@ test('new analyst: KDE workspace, native applications, persistence and session l
   const fatal: string[] = [];
   page.on('pageerror', (e) => fatal.push(e.message));
   await page.goto('/');
-  await page.getByRole('link', { name: '시작하기', exact: true }).click();
-  for (let i = 0; i < 4; i++) {
-    await page.getByRole('button', { name: i === 3 ? 'CREATE YOUR IDENTITY' : /계속하기/ }).click();
-  }
+  await page.getByRole('link', { name: '추리 시작하기', exact: true }).click();
+  await expect(page).toHaveURL(/login\?next=%2Fgame/);
+  await page.getByRole('link', { name: '회원가입', exact: true }).last().click();
   await expect(page).toHaveURL(/register/);
-  await page.getByRole('button', { name: '계정 생성 및 시작' }).click();
+  await page.getByRole('button', { name: '계정 만들고 시작하기' }).click();
   await expect(page.getByText('올바른 이메일 주소를 입력해 주세요.')).toBeVisible();
-  await page.getByLabel('Username', { exact: true }).fill(username);
-  await page.getByLabel('Email', { exact: true }).fill(`${username}@example.test`);
-  await page.getByLabel('Password', { exact: true }).fill(password);
-  await page.getByLabel('Confirm password', { exact: true }).fill(password);
-  await page.getByRole('button', { name: '계정 생성 및 시작' }).click();
+  await page.getByLabel('사용자명', { exact: true }).fill(username);
+  await page.getByLabel('이메일', { exact: true }).fill(`${username}@example.test`);
+  await page.getByLabel('비밀번호', { exact: true }).fill(password);
+  await page.getByLabel('비밀번호 확인', { exact: true }).fill(password);
+  await page.getByRole('button', { name: '계정 만들고 시작하기' }).click();
+  await expect(page.getByRole('main', { name: '신규 조사관 인트로' })).toBeVisible();
+  await page.request.patch('/api/profile', { headers: { origin: baseURL }, data: { displayName: '조사관 ROOT', setupCompleted: true } });
+  await page.getByRole('button', { name: '인트로 건너뛰기' }).click();
   await expect(page.getByRole('main', { name: '워크스테이션 부팅' })).toBeVisible();
   await screenshot(page, 'plasma-boot');
-  await expect(page.getByLabel('OS 로그인 비밀번호')).toBeVisible({ timeout: 12000 });
+  await expect(page.getByRole('main', { name: 'OS 로그인' })).toBeVisible({ timeout: 12000 });
   await screenshot(page, 'os-login');
-  await page.getByLabel('OS 로그인 비밀번호').fill('wrong-password');
-  await page.getByRole('button', { name: 'OS 로그인', exact: true }).click();
-  await expect(
-    page.getByRole('main', { name: 'OS 로그인', exact: true }).getByRole('alert'),
-  ).toContainText('계정 비밀번호가 일치하지 않습니다.');
   await osLogin(page);
-  await expect(page.getByRole('heading', { name: '당신의 자리를 확인하세요.' })).toBeVisible({
-    timeout: 12000,
-  });
+  const root = page.getByRole('region', { name: 'Project Root 창', exact: true });
+  await expect(root.getByRole('heading', { name: '사라진 링크' })).toBeVisible();
   await page.reload();
   await osLogin(page);
-  await expect(page.getByRole('heading', { name: '당신의 자리를 확인하세요.' })).toBeVisible({
-    timeout: 12000,
-  });
-  await page.getByLabel('표시 이름').fill('조사관 ROOT');
-  await page.getByRole('button', { name: '워크스테이션 시작' }).click();
-  const root = page.getByRole('region', { name: 'Project Root 창', exact: true });
+  await root.getByRole('button', { name: '세계관 안내', exact: true }).click();
   await expect(root.getByRole('region', { name: '세계관 안내' })).toBeVisible();
   await screenshot(page, 'world-briefing');
   for (let i = 0; i < 3; i++) await root.getByRole('button', { name: '계속', exact: true }).click();
   await root.getByRole('button', { name: '안내 마치기' }).click();
   await expect(root.getByRole('heading', { name: '환영합니다, 조사관 ROOT님.' })).toBeVisible();
   await expect(page.getByLabel('데스크톱 패널', { exact: true })).not.toContainText(username);
-  await expect(root.getByRole('heading', { name: '워크스테이션 둘러보기' })).toBeVisible();
-  await expect(page.getByRole('status')).toContainText('새 임무: 워크스테이션 둘러보기');
+  await expect(root.getByRole('heading', { name: '사라진 링크' })).toBeVisible();
   await expect(root.getByText('Tip · 자유롭게 메모하세요')).toBeAttached();
   await screenshot(page, 'plasma-desktop');
   await root.getByRole('button', { name: '세계관 안내', exact: true }).click();
@@ -173,18 +162,21 @@ test('new analyst: KDE workspace, native applications, persistence and session l
   await expect(dolphin.getByRole('button', { name: 'note.txt', exact: true })).toBeVisible();
   await dolphin.getByRole('button', { name: 'note.txt', exact: true }).dblclick();
   await expect(page.getByLabel('파일 내용')).toHaveValue('evidence\n');
-  const editor = page.getByRole('region', { name: 'KWrite 창', exact: true });
+  const editor = page.getByRole('region', { name: 'KWrite 창', exact: true }).first();
   await editor.getByLabel('파일 내용').fill('첫 번째 자유 메모\n컴퓨터 둘러보기');
   await editor.getByLabel('파일 내용').press('Control+s');
   await expect(editor.locator('.kwrite-tab')).toContainText('저장됨');
   await screenshot(page, 'kwrite');
-  await editor.getByRole('button', { name: '새 문서', exact: true }).click();
-  await editor.getByLabel('파일 내용').fill('내가 원하는 자유 메모');
-  await editor.getByLabel('파일 내용').press('Control+s');
+  await editor.getByRole('button', { name: '새 창에서 새 문서', exact: true }).click();
+  const newEditor = page.getByRole('region', { name: 'KWrite 창', exact: true }).last();
+  await expect(newEditor).toBeVisible();
+  await newEditor.getByLabel('파일 내용').fill('내가 원하는 자유 메모');
+  await newEditor.getByLabel('파일 내용').press('Control+s');
   await page.getByLabel('텍스트 파일 경로').fill(`/home/${username}/Desktop/자유 메모.txt`);
   await page.getByRole('dialog').getByRole('button', { name: '저장', exact: true }).click();
-  await expect(editor.locator('.kwrite-tab')).toContainText('자유 메모.txt');
+  await expect(newEditor.locator('.kwrite-tab')).toContainText('자유 메모.txt');
   await expect(surface.getByRole('button', { name: '자유 메모.txt', exact: true })).toBeAttached();
+  await newEditor.getByRole('button', { name: 'KWrite 닫기' }).click();
   await editor.getByRole('button', { name: 'KWrite 닫기' }).click();
   await dolphin
     .locator('.dolphin-places')
@@ -283,8 +275,8 @@ test('new analyst: KDE workspace, native applications, persistence and session l
   await expect(page).toHaveURL(baseURL + '/');
   await expect(page.getByRole('link', { name: '로그인', exact: true })).toHaveCount(0);
   await page.reload();
-  await expect(page.getByRole('link', { name: '워크스테이션 켜기', exact: true })).toBeVisible();
-  await page.getByRole('link', { name: '워크스테이션 켜기', exact: true }).click();
+  await expect(page.getByRole('link', { name: '추리 시작하기', exact: true })).toBeVisible();
+  await page.getByRole('link', { name: '추리 시작하기', exact: true }).click();
   await expect(page.getByRole('main', { name: '워크스테이션 부팅' })).toBeVisible();
   await osLogin(page);
   await expect(root).toBeVisible({ timeout: 12000 });
@@ -296,9 +288,9 @@ test('new analyst: KDE workspace, native applications, persistence and session l
   await root.getByRole('button', { name: '로그아웃', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: '로그아웃', exact: true }).click();
   await expect(page).toHaveURL(/login/);
-  await page.getByLabel('Username or email').fill(username);
-  await page.getByLabel('Password', { exact: true }).fill(password);
-  await page.getByRole('button', { name: '워크스테이션 연결' }).click();
+  await page.getByLabel('사용자명 또는 이메일').fill(username);
+  await page.getByLabel('비밀번호', { exact: true }).fill(password);
+  await page.getByRole('button', { name: '로그인하고 계속하기' }).click();
   await expect(page.getByRole('main', { name: '워크스테이션 부팅' })).toBeVisible();
   await osLogin(page);
   await expect(root).toBeVisible({ timeout: 12000 });

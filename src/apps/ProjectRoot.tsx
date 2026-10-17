@@ -38,7 +38,7 @@ export function ProjectRoot() {
   const { profile, onProfile, openApp, sessionAction, notify: workspaceNotify } = useWorkspace();
   const notify = (message: string) => workspaceNotify(message, 'root');
   const [section, setSection] = useState('case');
-  const [briefing, setBriefing] = useState(!profile.briefingCompleted);
+  const [briefing, setBriefing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   async function complete() {

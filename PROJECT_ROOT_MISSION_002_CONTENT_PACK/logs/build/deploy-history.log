@@ -1,0 +1,2 @@
+2026-09-24T15:20:00+09:00 environment=staging actor=svc-deploy revision=4f21b9 result=success
+2026-09-26T03:00:00+09:00 environment=staging actor=svc-deploy revision=50a18c result=success

@@ -40,15 +40,19 @@ export function AppWindow({
   const [dragging, setDragging] = useState(false);
   const [snapPreview, setSnapPreview] = useState<'left' | 'right' | 'top' | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  const { settings, profile, fileLocation, editorDocument } = useWorkspace();
+  const { settings, profile, fileLocation, editorDocuments } = useWorkspace();
   const app = applications.find((a) => a.id === state.id)!;
+  const editorDocument = editorDocuments[state.instanceId] || { path: null, text: '', saved: '' };
+  const windowDispatch = (action: WindowAction) =>
+    dispatch({ ...action, instanceId: state.instanceId } as WindowAction);
   useEffect(() => {
     const fit = () => {
       const el = ref.current;
       if (!el || state.maximized || state.minimized || state.snap) return;
       const rect = el.getBoundingClientRect();
       const pos = clampPosition(state.x, state.y, rect.width, rect.height, innerWidth, innerHeight);
-      if (pos.x !== state.x || pos.y !== state.y) dispatch({ type: 'move', id: state.id, ...pos });
+      if (pos.x !== state.x || pos.y !== state.y)
+        windowDispatch({ type: 'move', id: state.id, ...pos });
     };
     fit();
     window.addEventListener('resize', fit);
@@ -65,7 +69,7 @@ export function AppWindow({
     };
   }, [menu]);
   const act = (type: 'close' | 'minimize' | 'maximize' | 'shade' | 'above') => {
-    dispatch({ type, id: state.id });
+    windowDispatch({ type, id: state.id });
     setMenu(null);
   };
   const style: CSSProperties = {
@@ -78,7 +82,7 @@ export function AppWindow({
   };
   function move(x: number, y: number) {
     const r = ref.current!.getBoundingClientRect();
-    dispatch({
+    windowDispatch({
       type: 'move',
       id: state.id,
       ...clampPosition(x, y, r.width, r.height, innerWidth, innerHeight),
@@ -93,13 +97,14 @@ export function AppWindow({
         className={`kwin-window ${active ? 'active' : ''} ${state.maximized ? 'maximized' : ''} ${state.snap ? 'snapped ' + state.snap : ''} ${state.shaded ? 'shaded' : ''} ${dragging ? 'moving' : ''}`}
         style={style}
         onPointerEnter={() => {
-          if (settings.focusMode === 'follow' && !active) dispatch({ type: 'focus', id: state.id });
+          if (settings.focusMode === 'follow' && !active)
+            windowDispatch({ type: 'focus', id: state.id });
         }}
         onPointerDown={() => {
-          if (!active) dispatch({ type: 'focus', id: state.id });
+          if (!active) windowDispatch({ type: 'focus', id: state.id });
         }}
         onFocusCapture={() => {
-          if (!active) dispatch({ type: 'focus', id: state.id });
+          if (!active) windowDispatch({ type: 'focus', id: state.id });
         }}
       >
         <header
@@ -156,9 +161,9 @@ export function AppWindow({
                 innerWidth,
                 innerHeight,
               );
-              if (state.maximized) dispatch({ type: 'maximize', id: state.id });
-              else dispatch({ type: 'snap', id: state.id, side: null });
-              dispatch({ type: 'move', id: state.id, ...pos });
+              if (state.maximized) windowDispatch({ type: 'maximize', id: state.id });
+              else windowDispatch({ type: 'snap', id: state.id, side: null });
+              windowDispatch({ type: 'move', id: state.id, ...pos });
               drag.current = { dx: e.clientX - pos.x, dy: 15 };
               return;
             }
@@ -175,7 +180,7 @@ export function AppWindow({
           }}
           onPointerUp={() => {
             if (snapPreview === 'top') act('maximize');
-            else if (snapPreview) dispatch({ type: 'snap', id: state.id, side: snapPreview });
+            else if (snapPreview) windowDispatch({ type: 'snap', id: state.id, side: snapPreview });
             drag.current = null;
             setDragging(false);
             setSnapPreview(null);
@@ -269,7 +274,7 @@ export function AppWindow({
                 const height = r.edge.includes('bottom')
                   ? Math.max(260, Math.min(innerHeight - r.top - 62, r.height + dy))
                   : r.height;
-                dispatch({
+                windowDispatch({
                   type: 'resize',
                   id: state.id,
                   width,
@@ -299,7 +304,7 @@ export function AppWindow({
           <button onClick={() => act('maximize')}>{state.maximized ? '복원' : '최대화'}</button>
           <button
             onClick={() => {
-              dispatch({ type: 'snap', id: state.id, side: 'left' });
+              windowDispatch({ type: 'snap', id: state.id, side: 'left' });
               setMenu(null);
             }}
           >
@@ -308,7 +313,7 @@ export function AppWindow({
           </button>
           <button
             onClick={() => {
-              dispatch({ type: 'snap', id: state.id, side: 'right' });
+              windowDispatch({ type: 'snap', id: state.id, side: 'right' });
               setMenu(null);
             }}
           >
@@ -324,7 +329,7 @@ export function AppWindow({
             <button
               key={i}
               onClick={() => {
-                dispatch({ type: 'desktop', id: state.id, desktop: i });
+                windowDispatch({ type: 'desktop', id: state.id, desktop: i });
                 setMenu(null);
               }}
             >

@@ -51,6 +51,7 @@ import {
 import { NativeMenuBar, NativeDialog, ToolButton } from '@/components/ui/Native';
 import { AppIcon } from '@/components/desktop/AppIcon';
 import { applications, type AppId } from '@/components/desktop/apps';
+import { NETWORK_ROOT } from '@/game/virtualNetwork';
 export function fileApp(file: GameFile): AppId | undefined {
   const id = file.content?.match(/^X-Root-App=(.+)$/m)?.[1];
   return applications.find((a) => a.id === id)?.id;
@@ -464,9 +465,8 @@ export function Files() {
           ))}
           <h3>원격</h3>
           <button
-            onClick={() => {
-              setError('사용 가능한 원격 공유가 없습니다.');
-            }}
+            className={path === NETWORK_ROOT ? 'selected' : ''}
+            onClick={() => go(NETWORK_ROOT)}
           >
             <Network size={17} />
             네트워크

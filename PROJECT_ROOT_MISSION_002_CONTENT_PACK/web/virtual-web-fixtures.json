@@ -1,0 +1,122 @@
+{
+  "google": {
+    "queries": {
+      "윤서하": [
+        {
+          "title": "Seoha Yoon (seoha-y) · GitHub",
+          "url": "https://github.com/seoha-y",
+          "snippet": "Public repositories and recent activity by seoha-y."
+        },
+        {
+          "title": "윤서하 (@seoha_y) • Threads",
+          "url": "https://www.threads.net/@seoha_y",
+          "snippet": "공개 데이터와 아카이브 작업에 대한 게시물."
+        },
+        {
+          "title": "윤서하 — UX Notes",
+          "url": "https://example.invalid/yoon-seoha-ux",
+          "snippet": "부산 기반 UX 리서처 윤서하의 글 모음. 게임 내 무관 결과."
+        },
+        {
+          "title": "Open Records Meetup 2025",
+          "url": "https://events.example.invalid/open-records-2025",
+          "snippet": "지난 행사 참가자 및 발표 자료."
+        }
+      ],
+      "윤서하 archive": [
+        {
+          "title": "seoha-y/archive-index · GitHub",
+          "url": "https://github.com/seoha-y/archive-index",
+          "snippet": "Tools and notes for maintaining a public archive index."
+        },
+        {
+          "title": "윤서하 (@seoha_y) • Threads",
+          "url": "https://www.threads.net/@seoha_y",
+          "snippet": "9월 색인 갱신과 링크 변경에 대한 최근 게시물."
+        }
+      ]
+    }
+  },
+  "github": {
+    "users": {
+      "seoha-y": {
+        "name": "Seoha Yoon",
+        "bio": "Public data, archives, and small tools.",
+        "location": "Seoul",
+        "repos": [
+          "archive-index",
+          "link-checker",
+          "dataset-notes"
+        ],
+        "lastActivity": "2026-09-24T18:55:00+09:00"
+      },
+      "minjae-dev": {
+        "name": "Minjae Kim",
+        "bio": "Web developer.",
+        "repos": [
+          "tiny-router"
+        ]
+      }
+    },
+    "repos": {
+      "seoha-y/archive-index": {
+        "description": "Utilities and notes for maintaining a public archive index.",
+        "updated": "2026-09-24T18:55:00+09:00",
+        "activity": [
+          {
+            "time": "2026-09-24T18:55:00+09:00",
+            "type": "commit",
+            "message": "docs: note September source URL changes"
+          },
+          {
+            "time": "2026-09-24T16:51:00+09:00",
+            "type": "issue",
+            "message": "Verify redirected source links"
+          }
+        ]
+      }
+    }
+  },
+  "threads": {
+    "users": {
+      "seoha_y": {
+        "displayName": "윤서하",
+        "bio": "public data / archives",
+        "posts": [
+          {
+            "id": "p-0924",
+            "time": "2026-09-24T19:03:00+09:00",
+            "text": "9월 공개 아카이브 색인 정리를 마쳤습니다. 바뀐 원문 주소가 몇 개 있어서 확인 시각과 출처를 다시 맞췄어요."
+          },
+          {
+            "id": "p-0917",
+            "time": "2026-09-17T20:11:00+09:00",
+            "text": "오래 남는 링크보다, 바뀌어도 다시 찾을 수 있는 기록 구조가 더 중요할 때가 있다."
+          }
+        ]
+      },
+      "seoha_yoon": {
+        "displayName": "서하",
+        "bio": "photo / design / daily",
+        "posts": [
+          {
+            "id": "p-photo",
+            "time": "2026-09-25T22:18:00+09:00",
+            "text": "오늘 찍은 야경."
+          }
+        ]
+      },
+      "linux_daily": {
+        "displayName": "Linux Daily",
+        "bio": "Linux notes",
+        "posts": [
+          {
+            "id": "p-linux",
+            "time": "2026-09-26T09:10:00+09:00",
+            "text": "오늘의 작은 shell tip."
+          }
+        ]
+      }
+    }
+  }
+}

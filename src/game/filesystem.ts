@@ -1,3 +1,10 @@
+import {
+  virtualNetworkFiles,
+  logFiles,
+  smbDirectory,
+  NETWORK_ROOT,
+  LOG_SHARE,
+} from './virtualNetwork';
 export interface GameFile {
   path: string;
   kind: 'directory' | 'file';
@@ -9,6 +16,7 @@ export function initialFiles(username: string): GameFile[] {
   const home = homePath(username);
   const modified = '2026-09-26T00:00:00.000Z';
   return [
+    ...virtualNetworkFiles(),
     ...[
       '/',
       '/home',
@@ -94,6 +102,8 @@ export function directoryEntries(files: GameFile[], path: string, hidden = false
     );
 }
 export function writeFile(files: GameFile[], path: string, content: string): GameFile[] {
+  if (path === NETWORK_ROOT || path.startsWith(NETWORK_ROOT + '/'))
+    throw Error('원격 자료는 읽기 전용입니다.');
   if (files.find((f) => f.path === path)?.kind === 'directory') throw Error('대상은 폴더입니다.');
   if (!files.some((f) => f.path === parentPath(path) && f.kind === 'directory'))
     throw Error('상위 폴더가 없습니다.');
@@ -103,6 +113,8 @@ export function writeFile(files: GameFile[], path: string, content: string): Gam
   ];
 }
 export function makeDirectory(files: GameFile[], path: string): GameFile[] {
+  if (path === NETWORK_ROOT || path.startsWith(NETWORK_ROOT + '/'))
+    throw Error('원격 자료는 읽기 전용입니다.');
   if (files.some((f) => f.path === path)) throw Error('같은 이름이 이미 있습니다.');
   if (!files.some((f) => f.path === parentPath(path) && f.kind === 'directory'))
     throw Error('상위 폴더가 없습니다.');
@@ -110,6 +122,8 @@ export function makeDirectory(files: GameFile[], path: string): GameFile[] {
 }
 export function isProtectedPath(path: string) {
   return (
+    path === NETWORK_ROOT ||
+    path.startsWith(NETWORK_ROOT + '/') ||
     ['/', '/home', '/etc', '/tmp'].includes(path) ||
     /^\/home\/[^/]+(?:\/(?:Desktop|Documents|Downloads|Pictures|Music|Videos|\.config|\.local(?:\/share(?:\/Trash(?:\/files)?)?)?))?$/.test(
       path,
@@ -124,10 +138,23 @@ export function assertMutablePaths(paths: string[]) {
     );
 }
 export function repairSystemDirectories(files: GameFile[], username: string): GameFile[] {
-  const required = initialFiles(username).filter((f) => f.kind === 'directory');
+  const required = initialFiles(username).filter(
+    (f) => f.kind === 'directory' || f.path.startsWith(NETWORK_ROOT + '/'),
+  );
   return [
-    ...files.filter((f) => !required.some((dir) => dir.path === f.path && f.kind !== 'directory')),
-    ...required.filter((dir) => !files.some((f) => f.path === dir.path && f.kind === 'directory')),
+    ...files.filter(
+      (f) =>
+        !required.some(
+          (item) =>
+            item.path === f.path &&
+            (item.path.startsWith(NETWORK_ROOT + '/') || f.kind !== 'directory'),
+        ),
+    ),
+    ...required.filter(
+      (item) =>
+        item.path.startsWith(NETWORK_ROOT + '/') ||
+        !files.some((f) => f.path === item.path && f.kind === 'directory'),
+    ),
   ];
 }
 export function renameFile(files: GameFile[], path: string, target: string) {
@@ -146,7 +173,16 @@ export function runCommand(
   files: GameFile[],
   username: string,
   history: string[],
-): { output: string; cwd: string; files: GameFile[]; clear?: boolean } {
+  options: { smbclient?: boolean } = {},
+): {
+  output: string;
+  cwd: string;
+  files: GameFile[];
+  clear?: boolean;
+  installPackage?: 'smbclient';
+  evidence?: string;
+  enterSmb?: boolean;
+} {
   const home = homePath(username);
   const tokens =
     command.match(/"[^"]*"|'[^']*'|\S+/g)?.map((t) => t.replace(/^['"]|['"]$/g, '')) ?? [];
@@ -154,10 +190,104 @@ export function runCommand(
   const path = resolvePath(args.find((a) => !a.startsWith('-')) || '.', cwd, home);
   let output = '';
   try {
+    if (/^(?:sudo\s+)?apt(?:-get)?\s+update\s*$/.test(command))
+      return {
+        output:
+          'Hit:1 https://deb.debian.org/debian trixie InRelease\nGet:2 https://deb.debian.org/debian trixie/main amd64 Packages [9,600 kB]\nFetched 9,600 kB in 2s\nReading package lists... Done\nBuilding dependency tree... Done\nAll packages are up to date.',
+        cwd,
+        files,
+      };
+    if (/^(?:sudo\s+)?apt(?:-get)?\s+install\s+(?:-y\s+)?smbclient(?:\s+-y)?\s*$/.test(command))
+      return {
+        output: options.smbclient
+          ? 'smbclient is already the newest version.'
+          : 'Reading package lists... Done\nBuilding dependency tree... Done\nThe following NEW packages will be installed:\n  smbclient\nGet:1 https://deb.debian.org/debian trixie/main amd64 smbclient [450 kB]\nFetched 450 kB in 1s\nUnpacking smbclient ...\nSetting up smbclient ...',
+        cwd,
+        files,
+        installPackage: 'smbclient',
+      };
+    if (cmd === 'which' && args[0] === 'smbclient')
+      return { output: options.smbclient ? '/usr/bin/smbclient' : '', cwd, files };
+    if (cmd === 'smbclient') {
+      if (!options.smbclient) return { output: 'bash: smbclient: command not found', cwd, files };
+      if (args.includes('--version') || args.includes('-V'))
+        return { output: 'Version 4.22.0-Debian', cwd, files };
+      const target = args.find((arg) => arg.startsWith('//'));
+      const match = target?.match(/^\/\/([^/]+)(?:\/(\w+))?\/?$/);
+      if (!match || match[1] !== LOG_SHARE)
+        return {
+          output:
+            'NT_STATUS_BAD_NETWORK_NAME: server not available in PROJECT ROOT Virtual Network',
+          cwd,
+          files,
+        };
+      if (args.includes('-L'))
+        return {
+          output:
+            'Sharename       Type      Comment\n---------       ----      -------\npublic          Disk      Shared development resources\nprojects        Disk      Restricted project workspace\nlogs            Disk      Analyst read-only event records',
+          cwd,
+          files,
+        };
+      const share = match[2];
+      if (!share) return { output: 'smbclient: share name required', cwd, files };
+      if (share === 'projects')
+        return { output: 'NT_STATUS_ACCESS_DENIED opening remote file', cwd, files };
+      if (share === 'public')
+        return {
+          output:
+            '  README.txt                 A      178  Fri Sep 25 2026\n  team/                      D        0  Fri Sep 25 2026',
+          cwd,
+          files,
+        };
+      if (share !== 'logs') return { output: 'NT_STATUS_BAD_NETWORK_NAME', cwd, files };
+      if (!args.includes('-c'))
+        return {
+          output: 'Try "help" to get a list of possible commands.',
+          cwd,
+          files,
+          enterSmb: true,
+        };
+      const instruction = args[args.indexOf('-c') + 1] || 'ls';
+      const parts = instruction.split(/\s+/).filter(Boolean);
+      const op = parts[0]?.toLowerCase();
+      if (op === 'ls' || op === 'dir') {
+        const folder = (parts[1] || '').replace(/^\/+|\/+$/g, '');
+        return {
+          output:
+            smbDirectory(folder)
+              .map(
+                (name) =>
+                  `  ${name.padEnd(30)} ${name.endsWith('/') ? 'D' : 'A'}      0  Sat Sep 26 2026`,
+              )
+              .join('\n') || '  .',
+          cwd,
+          files,
+        };
+      }
+      if (op === 'get') {
+        const remote = (parts[1] || '').replace(/^\/+/, '');
+        const content = logFiles[remote];
+        if (content === undefined)
+          return {
+            output: `NT_STATUS_OBJECT_NAME_NOT_FOUND opening remote file ${remote}`,
+            cwd,
+            files,
+          };
+        const dest = `${home}/Downloads/${basename(remote)}`;
+        files = writeFile(files, dest, content);
+        return {
+          output: `getting file \\${remote.replace(/\//g, '\\')} of size ${content.length} as ${basename(dest)} (read-only source)`,
+          cwd,
+          files,
+          evidence: remote,
+        };
+      }
+      return { output: 'smbclient: supported commands: ls [directory], get <path>', cwd, files };
+    }
     switch (cmd) {
       case 'help':
         output =
-          'GNU bash — workstation\n\nNavigation: pwd, ls [-la], cd [path]\nFiles: cat, mkdir, touch, echo [text] > [file], rm, mv\nSession: whoami, hostname, uname, date, history, clear\n\n파일 변경은 Dolphin에도 반영됩니다.';
+          'GNU bash — workstation\n\nNavigation: pwd, ls [-la], cd [path]\nFiles: cat, grep [-in], head, tail, mkdir, touch, echo [text] > [file], rm, mv\nPackages: apt update, apt install <package>, which <command>\nNetwork: installed client utilities may provide additional commands\nSession: whoami, hostname, uname, date, history, clear\n\n파일 변경은 Dolphin에도 반영됩니다.';
         break;
       case 'pwd':
         output = cwd;
@@ -209,6 +339,47 @@ export function runCommand(
         const f = files.find((f) => f.path === path);
         if (!f || f.kind !== 'file') throw Error('No such file');
         output = f.content || '';
+        break;
+      }
+      case 'grep': {
+        const values = args.filter((a) => !a.startsWith('-'));
+        const needle = values.shift();
+        if (!needle || !values.length) throw Error('usage: grep [-in] pattern file');
+        const insensitive = args.some((a) => a.startsWith('-') && a.includes('i'));
+        const numbered = args.some((a) => a.startsWith('-') && a.includes('n'));
+        output = values
+          .flatMap((value) => {
+            const target = resolvePath(value, cwd, home);
+            const matches = value.includes('*')
+              ? files.filter(
+                  (f) =>
+                    f.kind === 'file' &&
+                    f.path.startsWith(parentPath(target) + '/') &&
+                    basename(f.path).endsWith(basename(value).replace('*', '')),
+                )
+              : files.filter((f) => f.path === target && f.kind === 'file');
+            return matches.flatMap((f) =>
+              (f.content || '').split('\n').flatMap((line, i) => {
+                const hay = insensitive ? line.toLowerCase() : line;
+                if (!hay.includes(insensitive ? needle.toLowerCase() : needle)) return [];
+                return [
+                  `${matches.length > 1 ? basename(f.path) + ':' : ''}${numbered ? i + 1 + ':' : ''}${line}`,
+                ];
+              }),
+            );
+          })
+          .join('\n');
+        break;
+      }
+      case 'head':
+      case 'tail': {
+        const countArg = args.find((a) => /^-[0-9]+$/.test(a));
+        const count = Math.min(100, Number(countArg?.slice(1) || 10));
+        const target = resolvePath(args.find((a) => !a.startsWith('-')) || '', cwd, home);
+        const file = files.find((f) => f.path === target && f.kind === 'file');
+        if (!file) throw Error('No such file');
+        const lines = (file.content || '').trimEnd().split('\n');
+        output = (cmd === 'head' ? lines.slice(0, count) : lines.slice(-count)).join('\n');
         break;
       }
       case 'echo': {
@@ -279,6 +450,8 @@ export function moveToTrash(files: GameFile[], paths: string[], username: string
   return next;
 }
 export function pasteFiles(files: GameFile[], paths: string[], destination: string, cut: boolean) {
+  if (destination === NETWORK_ROOT || destination.startsWith(NETWORK_ROOT + '/'))
+    throw Error('원격 자료는 읽기 전용입니다.');
   if (cut) assertMutablePaths(paths);
   if (!files.some((f) => f.path === destination && f.kind === 'directory'))
     throw Error('대상 폴더가 없습니다.');

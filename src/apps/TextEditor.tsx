@@ -1,20 +1,22 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { FilePlus, FolderOpen, Save, Search, WrapText, X } from 'lucide-react';
 import { NativeDialog, NativeMenuBar, ToolButton } from '@/components/ui/Native';
 import { useWorkspace } from '@/features/workspace/context';
 import { basename, homePath, resolvePath, writeFile } from '@/game/filesystem';
-export function TextEditor() {
+export function TextEditor({ windowId }: { windowId: string }) {
   const {
     profile,
     files,
     setFiles,
-    editorDocument: doc,
-    setEditorDocument: setDoc,
-    editorRequest,
-    clearEditorRequest,
+    editorDocuments,
+    setEditorDocument,
+    restoreEditorWindow,
+    openApp,
     notify: workspaceNotify,
   } = useWorkspace();
+  const doc = editorDocuments[windowId] || { path: null, text: '', saved: '' };
+  const setDoc = (next: typeof doc) => setEditorDocument(windowId, next);
   const notify = (message: string) => workspaceNotify(message, 'editor');
   const [modal, setModal] = useState<'open' | 'save' | 'discard' | 'overwrite' | null>(null);
   const [path, setPath] = useState('');
@@ -27,7 +29,6 @@ export function TextEditor() {
   const [cursor, setCursor] = useState(0);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const pending = useRef<(() => void) | null>(null);
-  const lastRequest = useRef<number | null>(null);
   const dirty = doc.text !== doc.saved;
   const home = homePath(profile.username);
   function load(path: string) {
@@ -47,21 +48,8 @@ export function TextEditor() {
       setModal('discard');
     } else action();
   }
-  useEffect(() => {
-    if (editorRequest && lastRequest.current !== editorRequest.id) {
-      lastRequest.current = editorRequest.id;
-      if (editorRequest.path !== doc.path) guard(() => load(editorRequest.path));
-      else if (!dirty) load(editorRequest.path);
-      clearEditorRequest();
-    }
-  }, [editorRequest]);
   function newFile() {
-    guard(() => {
-      setDoc({ path: null, text: '', saved: '' });
-      setCursor(0);
-      setError('');
-      setModal(null);
-    });
+    openApp('editor');
   }
   function openDialog() {
     guard(() => {
@@ -139,10 +127,16 @@ export function TextEditor() {
       <NativeMenuBar
         menus={{
           파일: [
-            { label: '새 문서', shortcut: 'Ctrl+N', action: newFile },
+            { label: '새 창에서 새 문서', shortcut: 'Ctrl+N', action: newFile },
             { label: '열기…', shortcut: 'Ctrl+O', action: openDialog },
             { label: '저장', shortcut: 'Ctrl+S', action: () => save() },
             { label: '다른 이름으로 저장…', shortcut: 'Ctrl+Shift+S', action: saveAs },
+            ...Object.entries(editorDocuments)
+              .filter(([id, draft]) => id !== windowId && draft.text !== draft.saved)
+              .map(([id, draft]) => ({
+                label: `초안 복구: ${draft.path ? basename(draft.path) : '제목 없음'}`,
+                action: () => restoreEditorWindow(id),
+              })),
           ],
           편집: [
             {
@@ -166,7 +160,7 @@ export function TextEditor() {
         }}
       />
       <div className="kwrite-toolbar">
-        <ToolButton label="새 문서" onClick={newFile}>
+        <ToolButton label="새 창에서 새 문서" onClick={newFile}>
           <FilePlus size={21} />
         </ToolButton>
         <ToolButton label="파일 열기" onClick={openDialog}>
