@@ -130,6 +130,7 @@ export function Desktop({
 }) {
   const router = useRouter();
   const [windows, dispatch] = useReducer(windowReducer, initialWindows);
+  const switchCycle = useRef<{ ids: string[]; index: number } | null>(null);
   const settings = profile.osSettings;
   const [desktop, setDesktop] = useState(0);
   const [clock, setClock] = useState(new Date());
@@ -146,11 +147,13 @@ export function Desktop({
   const [toast, setToast] = useState<{ message: string; source: AppId | 'plasma' } | null>(null);
   const [sessionDialog, setSessionDialog] = useState<SessionAction | null>(null);
   const [power, setPower] = useState<'on' | 'locked'>('on');
+  const [fullscreenActive, setFullscreenActive] = useState(false);
   const [password, setPassword] = useState('');
   const [sessionError, setSessionError] = useState('');
   const [busy, setBusy] = useState(false);
   const [settingsPage, setSettingsPage] = useState('quick');
   const [files, setFiles] = useState<GameFile[]>(() => initialFiles(profile.username));
+  const [browserNavigation, setBrowserNavigation] = useState<{ url: string; requestId: number } | null>(null);
   const [filesLoaded, setFilesLoaded] = useState(false);
   const emptyEditor: EditorDocument = { path: null, text: '', saved: '' };
   const [editorDocuments, setEditorDocuments] = useState<Record<string, EditorDocument>>({
@@ -206,7 +209,7 @@ export function Desktop({
   }, [editorDocuments, filesLoaded, profile.username]);
   function openText(path: string) {
     const caseEvidence = evidenceForFile(path);
-    if (caseEvidence && latest.current.profile.gameProgress.stage === 2)
+    if (caseEvidence && latest.current.profile.gameProgress.stage === 3)
       void sendGameEvent({ type: 'evidence', path: caseEvidence }).catch((error) =>
         notify(error instanceof Error ? error.message : '증거 기록 실패', 'root'),
       );
@@ -302,6 +305,31 @@ export function Desktop({
       playNotification(latest.current.settings);
     }
   }, []);
+  useEffect(() => {
+    let wasFullscreen = document.fullscreenElement === document.documentElement;
+    setFullscreenActive(wasFullscreen);
+    const onFullscreenChange = () => {
+      const isFullscreen = document.fullscreenElement === document.documentElement;
+      setFullscreenActive(isFullscreen);
+      if (wasFullscreen && !isFullscreen) {
+        notify('전체 화면이 해제되었습니다. Project Root 앱에서 다시 전체 화면으로 전환할 수 있습니다.', 'root');
+      }
+      wasFullscreen = isFullscreen;
+    };
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, [notify]);
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      if (document.fullscreenElement === document.documentElement) {
+        await document.exitFullscreen();
+      } else {
+        await document.documentElement.requestFullscreen();
+      }
+    } catch {
+      notify('브라우저가 전체 화면 전환을 허용하지 않았습니다. Project Root 앱에서 다시 시도해 주세요.', 'root');
+    }
+  }, [notify]);
   const gameQueue = useRef<Promise<unknown>>(Promise.resolve());
   const sendGameEvent = useCallback(
     (event: GameEvent): Promise<void> => {
@@ -322,7 +350,9 @@ export function Desktop({
               'root',
             );
           if (result.completed)
-            notify(`조사 보고서가 승인되었습니다. ${result.progress.stage}번째 임무를 완료했습니다.${result.progress.pendingStage ? ' 다음 임무는 잠시 후 배정됩니다.' : ''}`, 'root');
+            notify(event.type === 'visit' && result.progress.stage === 1
+              ? '워크스테이션 둘러보기를 마쳤습니다. 다음 임무가 잠시 후 배정됩니다.'
+              : `조사 보고서가 승인되었습니다. ${result.progress.stage === 5 ? 4 : result.progress.stage}번째 임무를 완료했습니다.${result.progress.pendingStage ? ' 다음 임무는 잠시 후 배정됩니다.' : ''}`, 'root');
         });
       gameQueue.current = request;
       return request;
@@ -353,7 +383,7 @@ export function Desktop({
     [sendGameEvent],
   );
   const rollbackMission = useCallback(
-    (stage: 1 | 2 | 3) => sendGameEvent({ type: 'rollback', stage }),
+    (stage: 1 | 2 | 3 | 4) => sendGameEvent({ type: 'rollback', stage }),
     [sendGameEvent],
   );
   const submitReport = useCallback(
@@ -412,6 +442,13 @@ export function Desktop({
     setRunner(false);
     setOverview(false);
   }
+  function openBrowserUrl(url: string) {
+    setBrowserNavigation((current) => ({ url, requestId: (current?.requestId ?? 0) + 1 }));
+    openApp('browser');
+  }
+  const clearBrowserNavigation = useCallback((requestId: number) => {
+    setBrowserNavigation((current) => current?.requestId === requestId ? null : current);
+  }, []);
   function sessionAction(action: SessionAction) {
     setLauncher(false);
     setTray(null);
@@ -448,6 +485,38 @@ export function Desktop({
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (power !== 'on') return;
+      const pressedKey = e.key.toLowerCase();
+      const switchWindow =
+        ((e.altKey || e.metaKey) && !e.ctrlKey && e.code === 'Tab') ||
+        (e.ctrlKey && e.altKey && !e.metaKey && pressedKey === 'w');
+      if (switchWindow) {
+        const candidates = windows
+          .filter((window) => window.desktop === desktop)
+          .sort((left, right) => right.z - left.z);
+        if (candidates.length > 0) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (
+            !switchCycle.current ||
+            switchCycle.current.ids.length !== candidates.length ||
+            switchCycle.current.ids.some(
+              (id) => !candidates.some((candidate) => candidate.instanceId === id),
+            )
+          ) {
+            switchCycle.current = {
+              ids: candidates.map((candidate) => candidate.instanceId),
+              index: candidates.findIndex((candidate) => candidate.instanceId === active?.instanceId),
+            };
+          }
+          const direction = e.shiftKey ? -1 : 1;
+          const cycle = switchCycle.current;
+          if (cycle.index < 0) cycle.index = direction > 0 ? 0 : cycle.ids.length - 1;
+          else cycle.index = (cycle.index + direction + cycle.ids.length) % cycle.ids.length;
+          const next = candidates.find((candidate) => candidate.instanceId === cycle.ids[cycle.index])!;
+          dispatch({ type: 'open', id: next.id, instanceId: next.instanceId, desktop });
+        }
+        return;
+      }
       if (e.key === 'Escape') {
         setLauncher(false);
         setRunner(false);
@@ -455,12 +524,15 @@ export function Desktop({
         setPanelMenu(false);
         setOverview(false);
       }
-      if (e.altKey && e.code === 'Space') {
+      if (
+        (e.altKey && e.code === 'Space') ||
+        ((e.ctrlKey || e.metaKey) && !e.altKey && pressedKey === 'k')
+      ) {
         e.preventDefault();
         setRunner((v) => !v);
       }
       if (e.ctrlKey && e.altKey) {
-        const k = e.key.toLowerCase();
+        const k = pressedKey;
         if (['t', 'l', 'd', 'arrowleft', 'arrowright'].includes(k)) e.preventDefault();
         if (k === 't') openApp('terminal');
         if (k === 'l') sessionAction('lock');
@@ -474,8 +546,20 @@ export function Desktop({
         dispatch({ type: 'close', id: active.id, instanceId: active.instanceId });
       }
     };
+    const release = (e: KeyboardEvent) => {
+      if (['Alt', 'Meta', 'Control'].includes(e.key)) switchCycle.current = null;
+    };
+    const blur = () => {
+      switchCycle.current = null;
+    };
     window.addEventListener('keydown', key);
-    return () => window.removeEventListener('keydown', key);
+    window.addEventListener('keyup', release);
+    window.addEventListener('blur', blur);
+    return () => {
+      window.removeEventListener('keydown', key);
+      window.removeEventListener('keyup', release);
+      window.removeEventListener('blur', blur);
+    };
   }, [power, windows, desktop, settings.virtualDesktops, active]);
   async function confirmSession() {
     setBusy(true);
@@ -556,7 +640,12 @@ export function Desktop({
         settings,
         saveSettings,
         openApp,
+        browserNavigation,
+        openBrowserUrl,
+        clearBrowserNavigation,
         sessionAction,
+        fullscreenActive,
+        toggleFullscreen,
         files,
         setFiles,
         notify,

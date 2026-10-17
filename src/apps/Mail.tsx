@@ -87,7 +87,10 @@ export function Mail() {
         localStorage.setItem(`root-mail:${profile.username}`, JSON.stringify(messages));
       } catch {}
   }, [loaded, messages, profile.username]);
-  const visible = messages.filter(
+  const availableMessages = messages.filter(
+    (message) => message.id !== 'case-001-request' || profile.gameProgress.stage >= 2,
+  );
+  const visible = availableMessages.filter(
     (m) =>
       m.folder === folder &&
       (m.subject + ' ' + m.from + ' ' + m.body).toLowerCase().includes(search.toLowerCase()),
@@ -211,7 +214,7 @@ export function Mail() {
             >
               <f.icon size={17} />
               {f.name}
-              <small>{messages.filter((m) => m.folder === f.id).length || ''}</small>
+              <small>{availableMessages.filter((m) => m.folder === f.id).length || ''}</small>
             </button>
           ))}
           <div className="kmail-account">

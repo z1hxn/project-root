@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { buildEvidence, caseHints, caseMissions, CHANGELOG_URL, CURRENT_RECORD_URL } from './cases';
-import { GITHUB_URL, THREADS_URL, canonicalWorldUrl } from './world';
+import { GITHUB_URL, OFFICIAL_URL, THREADS_URL, canonicalWorldUrl } from './world';
 import { logFiles } from './virtualNetwork';
 
 export const linkReportSchema = z.object({
@@ -24,40 +24,55 @@ export const incidentReportSchema = z.object({
 export type LinkReport = z.infer<typeof linkReportSchema>;
 export type BuildReport = z.infer<typeof buildReportSchema>;
 export type IncidentReport = z.infer<typeof incidentReportSchema>;
-const stageSchema = z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]);
-export type MissionStage = 1 | 2 | 3 | 4;
+const stageSchema = z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]);
+export type MissionStage = 1 | 2 | 3 | 4 | 5;
 export const NEXT_MISSION_DELAY_MS = 20_000;
 export const progressSchema = z.object({
-  version: z.literal(2).default(2),
+  version: z.literal(3).default(3),
   stage: stageSchema.default(1),
   highestStage: stageSchema.default(1),
-  pendingStage: z.union([z.literal(2), z.literal(3)]).nullable().default(null),
+  pendingStage: z.union([z.literal(2), z.literal(3), z.literal(4)]).nullable().default(null),
   nextMissionAt: z.string().datetime().nullable().default(null),
   visited: z.array(z.string()).default([]),
   evidence: z.array(z.string()).default([]),
   installedPackages: z.object({ smbclient: z.boolean().default(false) }).default({ smbclient: false }),
-  hintsUsed: z.object({ '1': z.number().int().min(0).max(3).default(0), '2': z.number().int().min(0).max(3).default(0), '3': z.number().int().min(0).max(3).default(0) }).default({ '1': 0, '2': 0, '3': 0 }),
+  hintsUsed: z.object({ '2': z.number().int().min(0).max(3).default(0), '3': z.number().int().min(0).max(3).default(0), '4': z.number().int().min(0).max(3).default(0) }).default({ '2': 0, '3': 0, '4': 0 }),
   reports: z.object({ link: linkReportSchema.nullable().default(null), build: buildReportSchema.nullable().default(null), incident: incidentReportSchema.nullable().default(null) }).default({ link: null, build: null, incident: null }),
 });
 export type GameProgress = z.infer<typeof progressSchema>;
 
 export function readProgress(input: unknown): GameProgress {
   const value = input && typeof input === 'object' ? input as Record<string, unknown> : {};
-  if (value.version === 2) {
+  if (value.version === 3) {
     const parsed = progressSchema.safeParse(value);
     return parsed.success ? { ...parsed.data, highestStage: Math.max(parsed.data.stage, parsed.data.highestStage) as MissionStage } : progressSchema.parse({});
+  }
+  if (value.version === 2) {
+    const oldStage = typeof value.stage === 'number' ? value.stage : 1;
+    const oldHighest = typeof value.highestStage === 'number' ? value.highestStage : oldStage;
+    const oldPending = typeof value.pendingStage === 'number' ? value.pendingStage : null;
+    const oldHints = value.hintsUsed && typeof value.hintsUsed === 'object' ? value.hintsUsed as Record<string, unknown> : {};
+    const migrated = progressSchema.safeParse({
+      ...value,
+      version: 3,
+      stage: Math.min(5, oldStage + 1),
+      highestStage: Math.min(5, Math.max(oldStage, oldHighest) + 1),
+      pendingStage: oldPending === null ? null : oldPending + 1,
+      hintsUsed: { '2': oldHints['1'], '3': oldHints['2'], '4': oldHints['3'] },
+    });
+    return migrated.success ? migrated.data : progressSchema.parse({});
   }
   // Previous saves used stage 0 for orientation and stage 1 for the internal-access case.
   const oldStage = typeof value.stage === 'number' ? value.stage : 0;
   const oldHighest = typeof value.highestStage === 'number' ? value.highestStage : oldStage;
-  const convert = (stage: number): MissionStage => stage >= 2 ? 4 : stage >= 1 ? 3 : 1;
+  const convert = (stage: number): MissionStage => stage >= 2 ? 5 : stage >= 1 ? 4 : 1;
   const oldReport = value.report && typeof value.report === 'object' ? value.report as Record<string, unknown> : null;
   const migrated = {
     stage: convert(oldStage), highestStage: convert(oldHighest),
     visited: Array.isArray(value.visited) ? value.visited : [],
     evidence: Array.isArray(value.evidence) ? value.evidence : [],
     installedPackages: value.installedPackages,
-    hintsUsed: { '1': 0, '2': 0, '3': Math.min(3, Number(value.mission002HintsUsed) || 0) },
+    hintsUsed: { '2': 0, '3': 0, '4': Math.min(3, Number(value.mission002HintsUsed) || 0) },
     reports: oldReport ? {
       link: null, build: null,
       incident: {
@@ -76,7 +91,7 @@ export function readProgress(input: unknown): GameProgress {
 
 export type GameEvent =
   | { type: 'visit'; url: string }
-  | { type: 'rollback'; stage: 1 | 2 | 3 }
+  | { type: 'rollback'; stage: 1 | 2 | 3 | 4 }
   | { type: 'hint' }
   | { type: 'install'; package: 'smbclient' }
   | { type: 'evidence'; path: string }
@@ -94,45 +109,53 @@ export function advanceProgress(current: GameProgress, event: GameEvent, now = D
   if (event.type === 'rollback') {
     if (event.stage > current.highestStage) throw Error('아직 배정되지 않은 임무입니다.');
     return result({ ...current, stage: event.stage, pendingStage: null, nextMissionAt: null, visited: [], evidence: [],
-      hintsUsed: { ...current.hintsUsed, [event.stage]: 0 },
+      hintsUsed: {
+        '2': event.stage <= 2 ? 0 : current.hintsUsed['2'],
+        '3': event.stage <= 3 ? 0 : current.hintsUsed['3'],
+        '4': 0,
+      },
       reports: {
-        link: event.stage <= 1 ? null : current.reports.link,
-        build: event.stage <= 2 ? null : current.reports.build,
-        incident: null,
+        link: event.stage <= 2 ? null : current.reports.link,
+        build: event.stage <= 3 ? null : current.reports.build,
+        incident: event.stage <= 4 ? null : current.reports.incident,
       },
     });
   }
   if (event.type === 'visit') {
     const url = canonicalWorldUrl(event.url);
     if (!url) throw Error('등록된 조사 페이지가 아닙니다.');
-    return result({ ...current, visited: current.visited.includes(url) ? current.visited : [...current.visited, url] });
+    const visited = current.visited.includes(url) ? current.visited : [...current.visited, url];
+    if (current.stage === 1 && !current.pendingStage && url === OFFICIAL_URL)
+      return result({ ...current, visited, pendingStage: 2, nextMissionAt: new Date(now + NEXT_MISSION_DELAY_MS).toISOString() }, true);
+    return result({ ...current, visited });
   }
   if (current.pendingStage) throw Error('다음 임무가 배정될 때까지 잠시 기다려 주세요.');
   if (event.type === 'hint') {
-    if (current.stage === 4) return result(current);
-    const key = String(current.stage) as '1' | '2' | '3';
-    return result({ ...current, hintsUsed: { ...current.hintsUsed, [key]: Math.min(caseHints[current.stage].length, current.hintsUsed[key] + 1) } });
+    if (current.stage === 1 || current.stage === 5) return result(current);
+    const key = String(current.stage) as '2' | '3' | '4';
+    const hintsStage = (current.stage - 1) as 1 | 2 | 3;
+    return result({ ...current, hintsUsed: { ...current.hintsUsed, [key]: Math.min(caseHints[hintsStage].length, current.hintsUsed[key] + 1) } });
   }
   if (event.type === 'link-report') {
-    if (current.stage !== 1) throw Error('현재 임무의 보고서가 아닙니다.');
+    if (current.stage !== 2) throw Error('현재 임무의 보고서가 아닙니다.');
     const report = linkReportSchema.parse(event.report);
     if (report.currentUrl !== CURRENT_RECORD_URL || report.changeUrl !== CHANGELOG_URL || report.conclusion !== '주소 이동/갱신' || ![CURRENT_RECORD_URL, CHANGELOG_URL].every((url) => current.visited.includes(url)))
       throw Error('현재 공식 자료와 공개 변경 이력을 Firefox에서 확인한 뒤 선택해 주세요.');
-    return result({ ...current, pendingStage: 2, nextMissionAt: new Date(now + NEXT_MISSION_DELAY_MS).toISOString(), reports: { ...current.reports, link: report } }, true);
+    return result({ ...current, pendingStage: 3, nextMissionAt: new Date(now + NEXT_MISSION_DELAY_MS).toISOString(), reports: { ...current.reports, link: report } }, true);
   }
   if (event.type === 'build-report') {
-    if (current.stage !== 2) throw Error('현재 임무의 보고서가 아닙니다.');
+    if (current.stage !== 3) throw Error('현재 임무의 보고서가 아닙니다.');
     const report = buildReportSchema.parse(event.report);
     if (!Object.values(buildEvidence).every((path) => current.evidence.includes(path)))
       throw Error('Dolphin의 사건용 작업·일정·인증 기록 세 개를 열어 비교해 주세요.');
     if (report.classification !== '예정된 자동 작업') throw Error('세 기록의 계정, 인증 방식, runner와 시간을 다시 비교해 주세요.');
-    return result({ ...current, pendingStage: 3, nextMissionAt: new Date(now + NEXT_MISSION_DELAY_MS).toISOString(), reports: { ...current.reports, build: report } }, true);
+    return result({ ...current, pendingStage: 4, nextMissionAt: new Date(now + NEXT_MISSION_DELAY_MS).toISOString(), reports: { ...current.reports, build: report } }, true);
   }
-  if (event.type === 'evidence' && current.stage === 2) {
+  if (event.type === 'evidence' && current.stage === 3) {
     if (!Object.values(buildEvidence).some((path) => path === event.path)) throw Error('이 사건의 자료가 아닙니다.');
     return result({ ...current, evidence: current.evidence.includes(event.path) ? current.evidence : [...current.evidence, event.path] });
   }
-  if (current.stage !== 3) throw Error('현재 진행 중인 조사 임무가 아닙니다.');
+  if (current.stage !== 4) throw Error('현재 진행 중인 조사 임무가 아닙니다.');
   if (event.type === 'install') return result({ ...current, installedPackages: { smbclient: true } });
   if (event.type === 'evidence') {
     if (!current.installedPackages.smbclient || !(event.path in logFiles)) throw Error('먼저 가상 저장소에 접근해 기록을 확보하세요.');
@@ -149,9 +172,9 @@ export function advanceProgress(current: GameProgress, event: GameEvent, now = D
     throw Error('Firefox에서 확인한 윤서하의 공개 기록을 선택해 주세요.');
   if (!['추가 확인 필요', '승인되지 않은 접근 가능성'].includes(report.assessment))
     throw Error('현재 증거로는 실제 사용자를 확정할 수 없습니다.');
-  return result({ ...current, stage: 4, highestStage: 4, reports: { ...current.reports, incident: report } }, true);
+  return result({ ...current, stage: 5, highestStage: 5, reports: { ...current.reports, incident: report } }, true);
 }
 
 export const explorationMission = caseMissions[0];
-export const investigationMission = caseMissions[2];
-export const mission002Hints = caseHints[2];
+export const investigationMission = caseMissions[3];
+export const mission002Hints = caseHints[1];

@@ -26,7 +26,20 @@ export function Workstation({ initialProfile }: { initialProfile: UserProfile })
   useEffect(() => {
     if (phase === 'boot' && step >= messages.length) setPhase('login');
   }, [step, phase]);
-  if (phase === 'login') return <OSLogin profile={profile} onUnlock={() => setPhase('desktop')} />;
+  useEffect(() => () => {
+    if (document.fullscreenElement === document.documentElement) {
+      void document.exitFullscreen().catch(() => {});
+    }
+  }, []);
+  if (phase === 'login') return <OSLogin profile={profile} onUnlock={() => {
+    // The login button provides the user gesture required by the Fullscreen API.
+    try {
+      if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+        void document.documentElement.requestFullscreen().catch(() => {});
+      }
+    } catch {}
+    setPhase('desktop');
+  }} />;
   if (phase === 'desktop') return <Desktop profile={profile} onProfile={setProfile} onRestart={() => { setStep(0); setPhase('boot'); }} />;
   return <main className="plasma-splash" aria-label="워크스테이션 부팅">
     <div className="splash-brand"><PlasmaLogo size={94} /><h1>Plasma</h1><div className="splash-spinner" /><p role="status">{messages[Math.min(step, messages.length - 1)]}</p></div>

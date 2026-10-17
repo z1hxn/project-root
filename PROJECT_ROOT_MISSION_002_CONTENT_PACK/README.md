@@ -1,14 +1,13 @@
 # PROJECT ROOT — MISSION 002 Content Pack
 
-이 폴더는 MISSION 002 「비정상 접근 기록」 구현용 완성 콘텐츠 팩이다.
-Codex는 문서/로그/웹 콘텐츠를 새로 창작하지 말고 이 파일의 내용을 fixture/source-of-truth로 사용한다.
+이 폴더는 「비정상 접근 기록」을 포함한 내부 조사 콘텐츠의 원본 자료다. `Documentation/`은 번호 체계로 통합한 사내 문서이며, 게임에는 `src/game/mission002-content.json`의 동일한 내용이 제공된다.
 
 ## Codex가 할 일
 1. 기존 KDE/Firefox/Dolphin/Konsole/Project Root UI를 유지한다.
-2. `Documentation/` 내용을 Virtual File System / Dolphin Network에 배치한다.
+2. `Documentation/` 내용을 Virtual File System / Dolphin Network에 배치한다. 기존 사용자의 옛 문서는 교체한다.
 3. `logs/` 내용을 `dev-files.root.internal`의 read-only `logs` share에 배치한다.
 4. `web/` fixture를 Firefox의 Virtual Web/Search 계층에 연결한다.
-5. 실제 외부 SMB/SSH 등에 접속하지 않는다. 모든 내부 host는 Virtual Network에서만 처리한다.
+5. 실제 외부 SMB/SSH 등에 접속하지 않는다. 모든 내부 host는 Virtual Network에서만 처리한다. KDE SMB KIO worker가 없는 관리형 이미지로 Dolphin의 SMB 탐색을 막고, `smbclient`의 Kerberos 세션을 통해 읽기 전용 공유에 접근한다.
 6. 문구를 임의로 요약하거나 정답성 문구를 추가하지 않는다.
 7. 구현 중 콘텐츠가 더 필요하면 우선 기존 파일을 재사용하고, 미션 해결에 필수인 경우에만 최소한으로 추가한다.
 

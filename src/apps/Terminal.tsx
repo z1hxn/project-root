@@ -8,9 +8,11 @@ import {
   directoryEntries,
   resolvePath,
   basename,
+  parentPath,
+  makeDirectory,
   writeFile,
 } from '@/game/filesystem';
-import { LOG_SHARE, logFiles, smbDirectory } from '@/game/virtualNetwork';
+import { LOG_SHARE, logFiles, publicShareFiles, smbListing, smbTransferMessage } from '@/game/virtualNetwork';
 import { NativeMenuBar, NativeDialog } from '@/components/ui/Native';
 interface TerminalSession {
   id: number;
@@ -18,6 +20,56 @@ interface TerminalSession {
   lines: { command: string; prompt: string; output: string }[];
   history: string[];
   smbPath?: string;
+  smbShare?: 'logs' | 'public';
+  smbLocalPath?: string;
+  smbPrompt?: boolean;
+  smbRecurse?: boolean;
+  smbMask?: string;
+  smbPending?: string[];
+}
+const smbHelp: Record<string, string> = {
+  ls: '<mask> list the contents of the current directory',
+  dir: '<mask> list the contents of the current directory',
+  cd: '<directory> change the current remote directory',
+  pwd: 'show current remote directory',
+  lcd: '[directory] change the current local directory',
+  get: '<remote file> [local file] get a file',
+  mget: '<mask> get all matching files',
+  more: '<file> view a remote file',
+  allinfo: '<file> show file information',
+  prompt: 'toggle prompting for mget and mput',
+  recurse: 'toggle directory recursion for mget and mput',
+  mask: '<mask> set mask for recursive operations',
+  history: 'display command history',
+  exit: 'terminate the connection',
+  quit: 'terminate the connection',
+  put: '<local file> [remote file] put a file',
+  mput: '<mask> put all matching files',
+  mkdir: '<directory> create a directory',
+  rmdir: '<directory> remove a directory',
+  rm: '<mask> remove matching files',
+  rename: '<old name> <new name> rename a file',
+};
+const smbHelpList = `  ls             dir            lcd            cd             pwd
+  get            mget           put            mput           rename
+  more           mask           del            rm             mkdir
+  md             rmdir          rd             prompt         recurse
+  allinfo        quit           exit           help           ?
+  history`;
+function matchesSmbPattern(name: string, pattern: string) {
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
+  return new RegExp(`^${escaped}$`, 'i').test(name);
+}
+function saveSmbDownload(files: ReturnType<typeof directoryEntries>, destination: string, content: string) {
+  let next = files;
+  const missing: string[] = [];
+  let folder = parentPath(destination);
+  while (!next.some((file) => file.path === folder && file.kind === 'directory')) {
+    missing.unshift(folder);
+    folder = parentPath(folder);
+  }
+  for (const path of missing) next = makeDirectory(next, path);
+  return writeFile(next, destination, content);
 }
 export function TerminalApp() {
   const { profile, files, setFiles, installPackage, recordEvidence } = useWorkspace();
@@ -43,9 +95,11 @@ export function TerminalApp() {
   const processing = processingSessions.includes(active);
   const cwd = session.cwd === home ? '~' : session.cwd.replace(home, '~');
   const prompt =
-    session.smbPath === undefined
+    session.smbPending?.length
+      ? `Get file ${basename(session.smbPending[0])}? `
+      : session.smbPath === undefined
       ? `${profile.username}@workstation:${cwd}$`
-      : `smb: \\${session.smbPath ? session.smbPath + '\\' : ''}>`;
+      : `smb: \\${session.smbPath ? session.smbPath.replace(/\//g, '\\') + '\\' : ''}>`;
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: 'nearest' });
   }, [session.lines]);
@@ -63,49 +117,124 @@ export function TerminalApp() {
     if (!command.trim() || processingRef.current.has(active)) return;
     const history = [...session.history, command];
     let smbPath = session.smbPath;
+    let smbShare = session.smbShare || 'logs';
+    const shareFiles = smbShare === 'logs' ? logFiles : publicShareFiles;
+    let smbLocalPath = session.smbLocalPath || `${home}/Downloads`;
+    let smbPrompt = session.smbPrompt ?? true;
+    let smbRecurse = session.smbRecurse ?? false;
+    let smbMask = session.smbMask || '*';
+    let smbPending = session.smbPending || [];
+    let downloadedPaths: string[] = [];
     let result: ReturnType<typeof runCommand>;
-    if (smbPath !== undefined) {
-      const [operation, ...args] = command.trim().split(/\s+/);
-      const remote = (input: string) => resolvePath(input, `/${smbPath}`, '/').slice(1);
+    if (smbPath !== undefined && smbPending.length) {
+      const path = smbPending[0];
+      const answer = command.trim().toLowerCase();
+      if (answer === 'y' || answer === 'yes') {
+        const relative = smbRecurse ? path.slice(smbPath ? smbPath.length + 1 : 0) : basename(path);
+        const destination = `${smbLocalPath}/${relative}`;
+        if (!destination.startsWith(home + '/')) result = { output: `NT_STATUS_ACCESS_DENIED opening local file ${destination}`, cwd: session.cwd, files };
+        else {
+          result = { output: smbTransferMessage(path, relative, shareFiles), cwd: session.cwd, files: saveSmbDownload(files, destination, shareFiles[path]), evidence: smbShare === 'logs' ? path : undefined };
+          if (smbShare === 'logs') downloadedPaths = [path];
+        }
+        smbPending = smbPending.slice(1);
+      } else if (answer === 'n' || answer === 'no') {
+        result = { output: '', cwd: session.cwd, files };
+        smbPending = smbPending.slice(1);
+      } else result = { output: 'Please answer y or n.', cwd: session.cwd, files };
+    } else if (smbPath !== undefined) {
+      const [rawOperation, ...args] = command.trim().match(/"[^"]*"|'[^']*'|\S+/g)?.map((part) => part.replace(/^['"]|['"]$/g, '')) || [];
+      const operation = rawOperation.toLowerCase();
+      const remote = (input: string) => resolvePath(input.replace(/\\/g, '/'), `/${smbPath}`, '/').slice(1);
       if (['quit', 'exit'].includes(operation)) {
         smbPath = undefined;
         result = { output: '', cwd: session.cwd, files };
-      } else if (operation === 'pwd') result = { output: `\\${smbPath}`, cwd: session.cwd, files };
-      else if (operation === 'help')
-        result = { output: 'ls [path]  cd <path>  get <file>  pwd  exit', cwd: session.cwd, files };
+      } else if (operation === 'pwd') result = { output: `Current directory is \\\\${LOG_SHARE}\\${smbShare}\\${smbPath ? smbPath.replace(/\//g, '\\') + '\\' : ''}`, cwd: session.cwd, files };
+      else if (operation === 'help' || operation === '?')
+        result = { output: args[0] ? `HELP ${args[0]}:\n\t${smbHelp[args[0]] || 'Unknown command'}` : smbHelpList, cwd: session.cwd, files };
+      else if (operation === 'history')
+        result = { output: history.map((item, i) => `${i + 1}  ${item}`).join('\n'), cwd: session.cwd, files };
+      else if (operation === 'lcd') {
+        const next = args[0] ? resolvePath(args[0], smbLocalPath, home) : smbLocalPath;
+        if (!files.some((file) => file.path === next && file.kind === 'directory'))
+          result = { output: `lcd: ${next}: No such directory`, cwd: session.cwd, files };
+        else {
+          smbLocalPath = next;
+          result = { output: `the local directory is now ${smbLocalPath}`, cwd: session.cwd, files };
+        }
+      } else if (operation === 'prompt' || operation === 'recurse') {
+        if (operation === 'prompt') smbPrompt = !smbPrompt;
+        else smbRecurse = !smbRecurse;
+        result = { output: operation === 'prompt' ? `prompting is now ${smbPrompt ? 'on' : 'off'}` : `directory recursion is now ${smbRecurse ? 'on' : 'off'}`, cwd: session.cwd, files };
+      } else if (operation === 'mask') {
+        smbMask = args[0] || '*';
+        result = { output: '', cwd: session.cwd, files };
+      }
       else if (operation === 'cd') {
-        const next = remote(args[0] || '/');
+        const next = remote(args[0] || '.');
         if (
           next &&
-          !['deploy', 'archive'].includes(next) &&
-          !Object.keys(logFiles).some((p) => p.startsWith(next + '/'))
+          !Object.keys(shareFiles).some((p) => p.startsWith(next + '/'))
         )
           result = { output: 'NT_STATUS_OBJECT_PATH_NOT_FOUND', cwd: session.cwd, files };
         else {
           smbPath = next;
-          result = { output: '', cwd: session.cwd, files };
+          result = { output: args[0] ? '' : `Current directory is \\\\${LOG_SHARE}\\${smbShare}\\${smbPath ? smbPath.replace(/\//g, '\\') + '\\' : ''}`, cwd: session.cwd, files };
         }
       } else if (operation === 'ls' || operation === 'dir')
         result = {
-          output:
-            smbDirectory(remote(args[0] || '.'))
-              .map((name) => `  ${name.padEnd(30)} ${name.endsWith('/') ? 'D' : 'A'}`)
-              .join('\n') || '  .',
+          output: args[0]?.includes('*') || args[0]?.includes('?')
+            ? smbListing(smbPath, args[0], shareFiles)
+            : smbListing(remote(args[0] || '.'), '*', shareFiles),
           cwd: session.cwd,
           files,
         };
       else if (operation === 'get') {
         const path = remote(args[0] || '');
-        const content = logFiles[path];
+        const content = shareFiles[path];
+        const localName = args[1] || basename(path);
+        const destination = resolvePath(localName, smbLocalPath, home);
+        if (smbShare === 'logs' && content !== undefined && destination.startsWith(home + '/') && files.some((file) => file.path === resolvePath('..', destination, home) && file.kind === 'directory')) downloadedPaths = [path];
         result =
           content === undefined
-            ? { output: `NT_STATUS_OBJECT_NAME_NOT_FOUND: ${path}`, cwd: session.cwd, files }
+            ? { output: `NT_STATUS_OBJECT_NAME_NOT_FOUND opening remote file \\${path.replace(/\//g, '\\')}`, cwd: session.cwd, files }
+            : !destination.startsWith(home + '/') || !files.some((file) => file.path === resolvePath('..', destination, home) && file.kind === 'directory')
+              ? { output: `get: local destination unavailable: ${destination}`, cwd: session.cwd, files }
             : {
-                output: `getting file \\${path} as ${basename(path)} (read-only source)`,
+                output: smbTransferMessage(path, localName, shareFiles),
                 cwd: session.cwd,
-                files: writeFile(files, `${home}/Downloads/${basename(path)}`, content),
-                evidence: path,
+                files: writeFile(files, destination, content),
+                evidence: smbShare === 'logs' ? path : undefined,
               };
+      } else if (operation === 'more' || operation === 'allinfo') {
+        const path = remote(args[0] || '');
+        const content = shareFiles[path];
+        result = { output: content === undefined ? `NT_STATUS_OBJECT_NAME_NOT_FOUND getting file \\${path}` : operation === 'more' ? content : `altname: ${basename(path)}\ncreate_time:    Sat Sep 26 00:00:00 2026 KST\naccess_time:    Sat Sep 26 00:00:00 2026 KST\nwrite_time:     Sat Sep 26 00:00:00 2026 KST\nchange_time:    Sat Sep 26 00:00:00 2026 KST\nattributes: A (20)\nstream: [::$DATA], ${content.length} bytes`, cwd: session.cwd, files };
+      } else if (operation === 'mget') {
+        const pattern = args[0] || '*';
+        const matches = Object.keys(shareFiles).filter((path) => {
+          const parent = path.slice(0, path.lastIndexOf('/'));
+          if (!smbRecurse) return parent === smbPath && matchesSmbPattern(basename(path), pattern);
+          if (parent === smbPath) return matchesSmbPattern(basename(path), smbMask) && matchesSmbPattern(basename(path), pattern);
+          const relative = parent.slice(smbPath ? smbPath.length + 1 : 0);
+          return parent.startsWith(smbPath ? smbPath + '/' : '') && matchesSmbPattern(relative.split('/')[0], pattern) && matchesSmbPattern(basename(path), smbMask);
+        });
+        if (smbPrompt) {
+          smbPending = matches;
+          result = { output: '', cwd: session.cwd, files };
+        } else if (!smbLocalPath.startsWith(home + '/')) {
+          result = { output: `NT_STATUS_ACCESS_DENIED opening local directory ${smbLocalPath}`, cwd: session.cwd, files };
+        } else {
+          let nextFiles = files;
+          for (const path of matches) {
+            const relative = smbRecurse ? path.slice(smbPath ? smbPath.length + 1 : 0) : basename(path);
+            nextFiles = saveSmbDownload(nextFiles, `${smbLocalPath}/${relative}`, shareFiles[path]);
+          }
+          if (smbShare === 'logs') downloadedPaths = matches;
+          result = { output: matches.map((path) => smbTransferMessage(path, smbRecurse ? path.slice(smbPath ? smbPath.length + 1 : 0) : basename(path), shareFiles)).join('\n'), cwd: session.cwd, files: nextFiles, evidence: smbShare === 'logs' ? matches[0] : undefined };
+        }
+      } else if (['put', 'mput', 'mkdir', 'md', 'rmdir', 'rd', 'del', 'rm', 'rename'].includes(operation)) {
+        result = { output: `NT_STATUS_ACCESS_DENIED ${['put', 'mput'].includes(operation) ? 'opening remote file' : 'on remote operation'} \\${remote(args[0] || '')}`, cwd: session.cwd, files };
       } else
         result = { output: `Unknown command: ${operation}. Type help.`, cwd: session.cwd, files };
     } else
@@ -117,18 +246,14 @@ export function TerminalApp() {
         history,
         profile.gameProgress.installedPackages,
       );
-    if (result.enterSmb) smbPath = '';
+    if (result.enterSmb) {
+      smbPath = '';
+      smbShare = result.enterShare || 'logs';
+    }
     const nextSmbPath = smbPath;
     const progressive =
-      /^(?:sudo\s+)?apt(?:-get)?\s+(?:update|install)\b/.test(command) || !!result.evidence;
-    const outputSteps = result.evidence
-      ? [
-          `Connecting to ${LOG_SHARE}...`,
-          'Accessing read-only logs share...',
-          `Receiving ${basename(result.evidence)}...`,
-          result.output,
-        ]
-      : result.output.split('\n');
+      /^(?:sudo\s+)?apt(?:-get)?\s+(?:update|install)\b/.test(command);
+    const outputSteps = result.output.split('\n');
     if (progressive) {
       processingRef.current.add(active);
       setProcessingSessions([...processingRef.current]);
@@ -140,6 +265,12 @@ export function TerminalApp() {
               ...x,
               cwd: result.cwd,
               smbPath: nextSmbPath,
+              smbShare,
+              smbLocalPath,
+              smbPrompt,
+              smbRecurse,
+              smbMask,
+              smbPending,
               history: history.slice(-200),
               lines: result.clear
                 ? []
@@ -182,18 +313,11 @@ export function TerminalApp() {
         );
       }
     }
-    if (result.evidence)
-      setFiles((current) =>
-        writeFile(
-          current,
-          `${home}/Downloads/${basename(result.evidence!)}`,
-          logFiles[result.evidence!],
-        ),
-      );
-    else if (result.files !== files) setFiles(result.files);
+    if (result.files !== files) setFiles(result.files);
     try {
       if (result.installPackage) await installPackage();
-      if (result.evidence) await recordEvidence(result.evidence);
+      for (const path of downloadedPaths.length ? downloadedPaths : result.evidences?.length ? result.evidences : result.evidence ? [result.evidence] : [])
+        await recordEvidence(path);
     } catch (error) {
       setSessions((s) =>
         s.map((x) =>

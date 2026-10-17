@@ -33,7 +33,7 @@ const scenes = [
   {
     label: '워크스테이션 연결',
     title: '접속 준비가\n완료되었습니다.',
-    text: '워크스테이션을 열면 첫 조사 요청이 도착해 있습니다. 제공된 자료를 확인하고, 당신의 판단으로 보고서를 완성해 주세요.',
+    text: '워크스테이션을 둘러보며 조사 도구를 익히세요. Firefox에서 PROJECT ROOT 공식 사이트를 확인하면 첫 조사 사건이 배정됩니다.',
     icon: ShieldCheck,
   },
 ] as const;

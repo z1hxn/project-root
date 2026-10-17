@@ -44,6 +44,7 @@ import {
   renameFile,
   moveToTrash,
   assertMutablePaths,
+  isProtectedPath,
   trashPath,
   pasteFiles,
   type GameFile,
@@ -51,7 +52,7 @@ import {
 import { NativeMenuBar, NativeDialog, ToolButton } from '@/components/ui/Native';
 import { AppIcon } from '@/components/desktop/AppIcon';
 import { applications, type AppId } from '@/components/desktop/apps';
-import { NETWORK_ROOT } from '@/game/virtualNetwork';
+import { NETWORK_ROOT, isDolphinSmbPath } from '@/game/virtualNetwork';
 export function fileApp(file: GameFile): AppId | undefined {
   const id = file.content?.match(/^X-Root-App=(.+)$/m)?.[1];
   return applications.find((a) => a.id === id)?.id;
@@ -82,7 +83,7 @@ export function Files() {
   } = useWorkspace();
   const notify = (message: string) => workspaceNotify(message, 'files');
   const home = homePath(profile.username);
-  const [path, setPath] = useState(fileLocation || home);
+  const [path, setPath] = useState(isDolphinSmbPath(fileLocation) ? NETWORK_ROOT : fileLocation || home);
   const [backStack, setBackStack] = useState<string[]>([]);
   const [forwardStack, setForwardStack] = useState<string[]>([]);
   const [view, setView] = useState<'icons' | 'compact' | 'details'>('icons');
@@ -103,7 +104,7 @@ export function Files() {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (fileLocation && fileLocation !== path) {
-      setPath(fileLocation);
+      setPath(isDolphinSmbPath(fileLocation) ? NETWORK_ROOT : fileLocation);
       setSelected([]);
     }
   }, [fileLocation]);
@@ -121,6 +122,10 @@ export function Files() {
   if (sort === 'type') entries = [...entries].sort((a, b) => a.kind.localeCompare(b.kind));
   const current = files.find((f) => f.path === selected[0]);
   function go(next: string) {
+    if (/^smb:/i.test(next) || isDolphinSmbPath(next)) {
+      setError('이 관리형 KDE 이미지에는 SMB KIO worker가 제공되지 않습니다. 원격 SMB 공유는 Dolphin에서 열 수 없습니다.');
+      return;
+    }
     if (!files.some((f) => f.path === next && f.kind === 'directory')) {
       setError('폴더를 찾을 수 없습니다.');
       return;
@@ -220,7 +225,7 @@ export function Files() {
       tabIndex={-1}
       onKeyDown={(e) => {
         if ((e.target as HTMLElement).matches('input,textarea')) return;
-        if (e.key === 'F2' && current) {
+        if (e.key === 'F2' && current && !isProtectedPath(current.path)) {
           e.preventDefault();
           startModal('rename');
         }
@@ -243,7 +248,8 @@ export function Files() {
         }
         if (e.ctrlKey && ['c', 'x'].includes(e.key)) {
           e.preventDefault();
-          setClipboard({ paths: selected, cut: e.key === 'x' });
+          if (e.key === 'c' || selected.every((item) => !isProtectedPath(item)))
+            setClipboard({ paths: selected, cut: e.key === 'x' });
         }
         if (e.ctrlKey && e.key === 'v') {
           e.preventDefault();
@@ -263,7 +269,7 @@ export function Files() {
               label: '잘라내기',
               shortcut: 'Ctrl+X',
               action: () => setClipboard({ paths: selected, cut: true }),
-              disabled: !selected.length,
+              disabled: !selected.length || selected.some(isProtectedPath),
             },
             {
               label: '복사',
@@ -276,13 +282,13 @@ export function Files() {
               label: '이름 바꾸기…',
               shortcut: 'F2',
               action: () => startModal('rename'),
-              disabled: !current,
+              disabled: !current || isProtectedPath(current.path),
             },
             {
               label: '휴지통으로 이동',
               shortcut: 'Delete',
               action: remove,
-              disabled: !selected.length,
+              disabled: !selected.length || selected.some(isProtectedPath),
             },
           ],
           보기: [
@@ -501,7 +507,7 @@ export function Files() {
           {entries.map((f) => (
             <button
               key={f.path}
-              draggable
+              draggable={!isProtectedPath(f.path)}
               className={`file-entry ${selected.includes(f.path) ? 'selected' : ''}`}
               onClick={(e) => select(e, f)}
               onDoubleClick={() => {
@@ -656,7 +662,7 @@ export function Files() {
             복사<kbd>Ctrl+C</kbd>
           </button>
           <button
-            disabled={!selected.length}
+            disabled={!selected.length || selected.some(isProtectedPath)}
             onClick={() => {
               setClipboard({ paths: selected, cut: true });
               setContext(null);
@@ -670,11 +676,11 @@ export function Files() {
             붙여넣기<kbd>Ctrl+V</kbd>
           </button>
           <hr />
-          <button disabled={!current} onClick={() => startModal('rename')}>
+          <button disabled={!current || isProtectedPath(current.path)} onClick={() => startModal('rename')}>
             <Edit3 size={15} />
             이름 바꾸기<kbd>F2</kbd>
           </button>
-          <button disabled={!selected.length} onClick={remove}>
+          <button disabled={!selected.length || selected.some(isProtectedPath)} onClick={remove}>
             <Trash2 size={15} />
             {path === trashPath(profile.username) ? '영구 삭제' : '휴지통으로 이동'}
           </button>

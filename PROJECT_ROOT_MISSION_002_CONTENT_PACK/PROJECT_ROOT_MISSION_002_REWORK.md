@@ -108,45 +108,15 @@ Dolphin과 Terminal은 반드시 동일한 Virtual Network / Virtual File System
 
 ```text
 Documentation/
-├── 01_Getting_Started/
-├── 02_Workstation/
-├── 03_Network/
-├── 04_Development/
-├── 05_Security/
-├── 06_Troubleshooting/
-└── Archive/
+├── 01_조직과_업무/
+├── 02_워크스테이션/
+├── 03_개발팀/
+└── 04_보안과_감사/
 ```
 
-예시 문서:
+현재 문서는 `[Project Root 사내 문서] 1-1`부터 `4-2`까지 번호를 부여한다. 유사 주제를 합쳐 실제 업무 절차, 담당 부서, 적용일, 참조 문서를 갖춘 8개 문서로 유지한다.
 
-```text
-Workstation-Setup.pdf
-Network-Resources.txt
-SMB-Access.md
-Remote-Access.md
-Package-Installation.md
-Developer-Environment.md
-Incident-Log-Locations.md
-VPN-Troubleshooting.md
-Account-Policy.md
-Password-Reset.md
-Legacy-Services.md
-```
-
-필요한 정보를 한 파일에 몰아넣지 않는다.
-
-`Network-Resources.txt`에서는 예를 들어 다음 내부 리소스의 역할과 hostname을 확인할 수 있다.
-
-```text
-Documentation        docs.root.internal
-Development Storage  dev-files.root.internal
-Build Storage        build.root.internal
-Archive              archive.root.internal
-```
-
-`SMB-Access.md`에서는 일부 내부 파일 서비스가 SMB를 사용하며 Linux workstation에서 Samba client utilities를 사용한다는 일반적인 운영 정보를 제공한다.
-
-`Package-Installation.md`에서는 승인된 Debian package를 APT로 설치하는 일반적인 절차를 설명한다.
+개발팀 `3-1`은 내부 서비스의 역할과 운영 기록의 보관 위치를 설명한다. `3-2`는 Samba 클라이언트의 명령·출력·오류를 다루는 참고서다. 워크스테이션 `2-1`은 KDE의 SMB KIO worker가 없는 관리형 이미지와 Dolphin의 접근 범위를 설명한다. 중앙 기록은 Kerberos 세션을 쓰는 `smbclient`로만 읽고, 작업 사본은 로컬 Dolphin에서 확인한다.
 
 문서에 “다음 단서는 여기 있습니다” 같은 게임식 표현을 쓰지 않는다.
 

@@ -1,9 +1,12 @@
 import {
   virtualNetworkFiles,
   logFiles,
-  smbDirectory,
+  smbListing,
+  smbTransferMessage,
+  publicShareFiles,
   NETWORK_ROOT,
   LOG_SHARE,
+  isDolphinSmbPath,
 } from './virtualNetwork';
 export interface GameFile {
   path: string;
@@ -12,6 +15,20 @@ export interface GameFile {
   modified: string;
 }
 export const homePath = (username: string) => `/home/${username}`;
+const desktopApps = [
+  { id: 'root', name: 'Project Root' },
+  { id: 'browser', name: 'Firefox' },
+  { id: 'files', name: 'Dolphin' },
+  { id: 'terminal', name: 'Konsole' },
+  { id: 'mail', name: 'KMail' },
+  { id: 'settings', name: '시스템 설정' },
+  { id: 'editor', name: 'KWrite' },
+];
+const desktopAppNames = new Set(desktopApps.map((app) => `${app.name}.desktop`));
+export function isProtectedDesktopApp(path: string) {
+  const match = /^\/home\/[^/]+\/Desktop\/([^/]+)$/.exec(path);
+  return !!match && desktopAppNames.has(match[1]);
+}
 export function initialFiles(username: string): GameFile[] {
   const home = homePath(username);
   const modified = '2026-09-26T00:00:00.000Z';
@@ -35,15 +52,7 @@ export function initialFiles(username: string): GameFile[] {
       '/etc',
       '/tmp',
     ].map((path) => ({ path, kind: 'directory' as const, modified })),
-    ...[
-      { id: 'root', name: 'Project Root' },
-      { id: 'browser', name: 'Firefox' },
-      { id: 'files', name: 'Dolphin' },
-      { id: 'terminal', name: 'Konsole' },
-      { id: 'mail', name: 'KMail' },
-      { id: 'settings', name: '시스템 설정' },
-      { id: 'editor', name: 'KWrite' },
-    ].map((a) => ({
+    ...desktopApps.map((a) => ({
       path: `${home}/Desktop/${a.name}.desktop`,
       kind: 'file' as const,
       modified,
@@ -102,6 +111,7 @@ export function directoryEntries(files: GameFile[], path: string, hidden = false
     );
 }
 export function writeFile(files: GameFile[], path: string, content: string): GameFile[] {
+  if (isProtectedDesktopApp(path)) throw Error('기본 앱 바로가기는 수정할 수 없습니다.');
   if (path === NETWORK_ROOT || path.startsWith(NETWORK_ROOT + '/'))
     throw Error('원격 자료는 읽기 전용입니다.');
   if (files.find((f) => f.path === path)?.kind === 'directory') throw Error('대상은 폴더입니다.');
@@ -122,6 +132,7 @@ export function makeDirectory(files: GameFile[], path: string): GameFile[] {
 }
 export function isProtectedPath(path: string) {
   return (
+    isProtectedDesktopApp(path) ||
     path === NETWORK_ROOT ||
     path.startsWith(NETWORK_ROOT + '/') ||
     ['/', '/home', '/etc', '/tmp'].includes(path) ||
@@ -134,31 +145,36 @@ export function assertMutablePaths(paths: string[]) {
   const protectedPath = paths.find(isProtectedPath);
   if (protectedPath)
     throw Error(
-      `“${basename(protectedPath)}”은 워크스테이션의 기본 폴더입니다. 삭제하거나 이동하거나 이름을 바꿀 수 없습니다. 폴더 안의 개인 파일은 정리할 수 있습니다.`,
+      isProtectedDesktopApp(protectedPath)
+        ? `“${basename(protectedPath).replace(/\.desktop$/, '')}”은 기본 앱 바로가기입니다. 삭제하거나 이동하거나 이름을 바꿀 수 없습니다.`
+        : `“${basename(protectedPath)}”은 워크스테이션의 기본 폴더입니다. 삭제하거나 이동하거나 이름을 바꿀 수 없습니다. 폴더 안의 개인 파일은 정리할 수 있습니다.`,
     );
 }
 export function repairSystemDirectories(files: GameFile[], username: string): GameFile[] {
   const required = initialFiles(username).filter(
-    (f) => f.kind === 'directory' || f.path.startsWith(NETWORK_ROOT + '/'),
+    (f) => f.kind === 'directory' || f.path.startsWith(NETWORK_ROOT + '/') || isProtectedDesktopApp(f.path),
   );
   return [
     ...files.filter(
       (f) =>
+        !f.path.startsWith(`${NETWORK_ROOT}/PROJECT ROOT/Documentation/`) &&
+        !isDolphinSmbPath(f.path) &&
         !required.some(
           (item) =>
             item.path === f.path &&
-            (item.path.startsWith(NETWORK_ROOT + '/') || f.kind !== 'directory'),
+            (item.path.startsWith(NETWORK_ROOT + '/') || isProtectedDesktopApp(item.path) || f.kind !== item.kind),
         ),
     ),
     ...required.filter(
       (item) =>
         item.path.startsWith(NETWORK_ROOT + '/') ||
-        !files.some((f) => f.path === item.path && f.kind === 'directory'),
+        isProtectedDesktopApp(item.path) ||
+        !files.some((f) => f.path === item.path && f.kind === item.kind),
     ),
   ];
 }
 export function renameFile(files: GameFile[], path: string, target: string) {
-  assertMutablePaths([path]);
+  assertMutablePaths([path, target]);
   if (target.startsWith(path + '/')) throw Error('폴더를 자기 자신 안에 넣을 수 없습니다.');
   if (files.some((f) => f.path === target)) throw Error('같은 이름이 이미 있습니다.');
   return files.map((f) =>
@@ -181,7 +197,9 @@ export function runCommand(
   clear?: boolean;
   installPackage?: 'smbclient';
   evidence?: string;
+  evidences?: string[];
   enterSmb?: boolean;
+  enterShare?: 'logs' | 'public';
 } {
   const home = homePath(username);
   const tokens =
@@ -212,77 +230,82 @@ export function runCommand(
       if (!options.smbclient) return { output: 'bash: smbclient: command not found', cwd, files };
       if (args.includes('--version') || args.includes('-V'))
         return { output: 'Version 4.22.0-Debian', cwd, files };
-      const target = args.find((arg) => arg.startsWith('//'));
+      const listHost = args.includes('-L') ? args[args.indexOf('-L') + 1] : undefined;
+      const target = args.find((arg) => arg.startsWith('//')) || (listHost ? `//${listHost}` : undefined);
       const match = target?.match(/^\/\/([^/]+)(?:\/(\w+))?\/?$/);
       if (!match || match[1] !== LOG_SHARE)
         return {
-          output:
-            'NT_STATUS_BAD_NETWORK_NAME: server not available in PROJECT ROOT Virtual Network',
+          output: 'do_connect: Connection failed (Error NT_STATUS_BAD_NETWORK_NAME)',
           cwd,
           files,
         };
+      if (!args.includes('--use-kerberos=required'))
+        return { output: 'session setup failed: NT_STATUS_LOGON_FAILURE', cwd, files };
       if (args.includes('-L'))
         return {
           output:
-            'Sharename       Type      Comment\n---------       ----      -------\npublic          Disk      Shared development resources\nprojects        Disk      Restricted project workspace\nlogs            Disk      Analyst read-only event records',
+            '\tSharename       Type      Comment\n\t---------       ----      -------\n\tpublic          Disk      Shared development resources\n\tprojects        Disk      Restricted project workspace\n\tlogs            Disk      Analyst read-only event records\n\tIPC$            IPC       IPC Service (PROJECT ROOT)\nSMB1 disabled -- no workgroup available',
           cwd,
           files,
         };
       const share = match[2];
       if (!share) return { output: 'smbclient: share name required', cwd, files };
       if (share === 'projects')
-        return { output: 'NT_STATUS_ACCESS_DENIED opening remote file', cwd, files };
-      if (share === 'public')
-        return {
-          output:
-            '  README.txt                 A      178  Fri Sep 25 2026\n  team/                      D        0  Fri Sep 25 2026',
-          cwd,
-          files,
-        };
-      if (share !== 'logs') return { output: 'NT_STATUS_BAD_NETWORK_NAME', cwd, files };
+        return { output: 'tree connect failed: NT_STATUS_ACCESS_DENIED', cwd, files };
+      if (share !== 'logs' && share !== 'public') return { output: 'tree connect failed: NT_STATUS_BAD_NETWORK_NAME', cwd, files };
+      const shareFiles = share === 'logs' ? logFiles : publicShareFiles;
       if (!args.includes('-c'))
         return {
           output: 'Try "help" to get a list of possible commands.',
           cwd,
           files,
           enterSmb: true,
+          enterShare: share,
         };
       const instruction = args[args.indexOf('-c') + 1] || 'ls';
-      const parts = instruction.split(/\s+/).filter(Boolean);
-      const op = parts[0]?.toLowerCase();
-      if (op === 'ls' || op === 'dir') {
-        const folder = (parts[1] || '').replace(/^\/+|\/+$/g, '');
-        return {
-          output:
-            smbDirectory(folder)
-              .map(
-                (name) =>
-                  `  ${name.padEnd(30)} ${name.endsWith('/') ? 'D' : 'A'}      0  Sat Sep 26 2026`,
-              )
-              .join('\n') || '  .',
-          cwd,
-          files,
-        };
+      let remoteDir = '';
+      let localDir = `${home}/Downloads`;
+      const outputs: string[] = [];
+      const evidences: string[] = [];
+      for (const item of instruction.split(';').map((part) => part.trim()).filter(Boolean)) {
+        const [op, ...parameters] = item.split(/\s+/);
+        const targetPath = resolvePath((parameters[0] || '.').replace(/\\/g, '/'), '/' + remoteDir, '/').slice(1);
+        if (op === 'cd') {
+          if (targetPath && !Object.keys(shareFiles).some((name) => name.startsWith(targetPath + '/')))
+            outputs.push(`NT_STATUS_OBJECT_PATH_NOT_FOUND: ${parameters[0]}`);
+          else remoteDir = targetPath;
+        } else if (op === 'ls' || op === 'dir') {
+          const pattern = parameters[0] || '*';
+          outputs.push(pattern.includes('*') || pattern.includes('?')
+            ? smbListing(remoteDir, pattern, shareFiles)
+            : smbListing(targetPath, '*', shareFiles));
+        } else if (op === 'pwd') {
+          outputs.push(`Current directory is \\\\${LOG_SHARE}\\${share}\\${remoteDir ? remoteDir.replace(/\//g, '\\') + '\\' : ''}`);
+        } else if (op === 'lcd') {
+          const next = parameters[0] ? resolvePath(parameters[0], localDir, home) : localDir;
+          if (files.some((file) => file.path === next && file.kind === 'directory')) {
+            localDir = next;
+            outputs.push(`the local directory is now ${localDir}`);
+          } else outputs.push(`lcd: ${next}: No such directory`);
+        } else if (op === 'get') {
+          const content = shareFiles[targetPath];
+          if (content === undefined) outputs.push(`NT_STATUS_OBJECT_NAME_NOT_FOUND opening remote file \\${targetPath}`);
+          else {
+            const dest = resolvePath(parameters[1] || basename(targetPath), localDir, home);
+            if (!dest.startsWith(home + '/') || !files.some((file) => file.path === parentPath(dest) && file.kind === 'directory'))
+              outputs.push(`get: local destination unavailable: ${dest}`);
+            else {
+              files = writeFile(files, dest, content);
+              outputs.push(smbTransferMessage(targetPath, parameters[1] || basename(dest), shareFiles));
+              if (share === 'logs') evidences.push(targetPath);
+            }
+          }
+        } else if (op === 'more') {
+          outputs.push(shareFiles[targetPath] ?? `NT_STATUS_OBJECT_NAME_NOT_FOUND opening remote file \\${targetPath}`);
+        } else if (op === 'exit' || op === 'quit') break;
+        else outputs.push(`Unknown command: ${op}`);
       }
-      if (op === 'get') {
-        const remote = (parts[1] || '').replace(/^\/+/, '');
-        const content = logFiles[remote];
-        if (content === undefined)
-          return {
-            output: `NT_STATUS_OBJECT_NAME_NOT_FOUND opening remote file ${remote}`,
-            cwd,
-            files,
-          };
-        const dest = `${home}/Downloads/${basename(remote)}`;
-        files = writeFile(files, dest, content);
-        return {
-          output: `getting file \\${remote.replace(/\//g, '\\')} of size ${content.length} as ${basename(dest)} (read-only source)`,
-          cwd,
-          files,
-          evidence: remote,
-        };
-      }
-      return { output: 'smbclient: supported commands: ls [directory], get <path>', cwd, files };
+      return { output: outputs.join('\n'), cwd, files, evidence: evidences[0], evidences };
     }
     switch (cmd) {
       case 'help':

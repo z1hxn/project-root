@@ -761,14 +761,20 @@ export function Settings() {
                 <tbody>
                   {[
                     ['프로그램 실행 (KRunner)', 'Alt + Space'],
+                    ['프로그램 실행 (브라우저가 전달할 때)', 'Ctrl/⌘ + K'],
                     ['Konsole 열기', 'Ctrl + Alt + T'],
                     ['화면 잠금', 'Ctrl + Alt + L'],
                     ['바탕화면 보기', 'Ctrl + Alt + D'],
                     ['가상 데스크톱 전환', 'Ctrl + Alt + ← / →'],
+                    ['창 전환', 'Alt/Option + Tab · Ctrl + Alt + W'],
                     ['창 닫기', 'Alt + F4'],
                     ['창 이동 (제목 표시줄 포커스)', 'Alt + 방향키'],
-                    ['Firefox 주소창', 'Ctrl + L'],
-                    ['Firefox 새 탭', 'Ctrl + T'],
+                    ['Firefox 주소창', 'Ctrl/⌘ + L · Alt + Shift + L'],
+                    ['Firefox 새 탭', 'Ctrl/⌘ + T · Alt + Shift + T'],
+                    ['Firefox 탭 닫기', 'Ctrl/⌘ + W · Alt + Shift + W'],
+                    ['Firefox 새로고침', 'Ctrl/⌘ + R'],
+                    ['Firefox 북마크', 'Ctrl/⌘ + D · Alt + Shift + B'],
+                    ['KWrite 동적 줄 바꿈', 'F10'],
                     ['Dolphin 이름 변경', 'F2'],
                   ].map(([a, b]) => (
                     <tr key={a}>
@@ -781,7 +787,7 @@ export function Settings() {
                 </tbody>
               </table>
               <p className="settings-note">
-                브라우저 또는 호스트 OS가 먼저 처리하는 단축키는 게임에 전달되지 않을 수 있습니다.
+                게임에 전달된 단축키는 워크스테이션에서 처리합니다. macOS의 ⌘+Tab처럼 OS가 먼저 처리하는 키와 일부 브라우저 전용 키는 전달되지 않으므로 대체 단축키를 사용하세요.
               </p>
             </>
           )}

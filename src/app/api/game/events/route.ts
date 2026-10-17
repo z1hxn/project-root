@@ -6,7 +6,7 @@ import { errorResponse, sameOrigin } from '@/server/http';
 import { readOSSettings } from '@/lib/os-settings';
 import { advanceProgress, readProgress, linkReportSchema, buildReportSchema, incidentReportSchema } from '@/game/missions';
 const eventSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('rollback'), stage: z.union([z.literal(1), z.literal(2), z.literal(3)]) }).strict(),
+  z.object({ type: z.literal('rollback'), stage: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]) }).strict(),
   z.object({ type: z.literal('visit'), url: z.string().max(500) }).strict(),
   z.object({ type: z.literal('hint') }).strict(),
   z.object({ type: z.literal('activate') }).strict(),

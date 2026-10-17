@@ -2,22 +2,18 @@
 import { useState } from 'react';
 import {
   BriefcaseBusiness,
-  Network,
-  KeyRound,
-  Files,
+  FolderOpen,
   Lightbulb,
   BookOpen,
   UserRound,
   LogOut,
   Power,
   ArrowUpRight,
-  Search,
-  Radio,
   Check,
   Play,
   ShieldCheck,
-  Compass,
-  History,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import { useWorkspace } from '@/features/workspace/context';
 import { AppIcon, RootIcon } from '@/components/desktop/AppIcon';
@@ -27,15 +23,20 @@ import { explorationMission } from '@/game/missions';
 import { api } from '@/lib/api';
 import type { UserProfile } from '@/types/user';
 const sections = [
-  { id: 'case', name: '사건', label: 'CASE', icon: BriefcaseBusiness },
-  { id: 'intel', name: '조사 정보', label: 'INTEL', icon: Network },
-  { id: 'accounts', name: '발견한 계정', label: 'ACCOUNTS', icon: KeyRound },
-  { id: 'evidence', name: '증거 보관함', label: 'EVIDENCE', icon: Files },
-  { id: 'history', name: '임무 이력', label: 'HISTORY', icon: History },
-  { id: 'hint', name: '힌트', label: 'HINT', icon: Lightbulb },
+  { id: 'case', name: '임무', icon: BriefcaseBusiness },
+  { id: 'records', name: '조사 자료', icon: FolderOpen },
+  { id: 'hint', name: '힌트', icon: Lightbulb },
 ];
 export function ProjectRoot() {
-  const { profile, onProfile, openApp, sessionAction, notify: workspaceNotify } = useWorkspace();
+  const {
+    profile,
+    onProfile,
+    openApp,
+    sessionAction,
+    fullscreenActive,
+    toggleFullscreen,
+    notify: workspaceNotify,
+  } = useWorkspace();
   const notify = (message: string) => workspaceNotify(message, 'root');
   const [section, setSection] = useState('case');
   const [briefing, setBriefing] = useState(false);
@@ -82,12 +83,12 @@ export function ProjectRoot() {
         <div className="root-app-brand">
           <RootIcon size={31} />
           <span>
-            Project Root<small>INVESTIGATION PLATFORM</small>
+            Project Root<small>조사 워크스페이스</small>
           </span>
         </div>
-        <p className="root-nav-label">WORKSPACE</p>
+        <p className="root-nav-label">메뉴</p>
         <nav>
-          {sections.map(({ id, name, label, icon: Icon }) => (
+          {sections.map(({ id, name, icon: Icon }) => (
             <button
               key={id}
               className={section === id ? 'active' : ''}
@@ -95,11 +96,14 @@ export function ProjectRoot() {
             >
               <Icon size={17} />
               {name}
-              <small>{label === 'CASE' ? '01' : ''}</small>
             </button>
           ))}
         </nav>
         <div className="root-sidebar-bottom">
+          <button onClick={() => void toggleFullscreen()} aria-pressed={fullscreenActive}>
+            {fullscreenActive ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
+            {fullscreenActive ? '전체 화면 종료' : '전체 화면으로 보기'}
+          </button>
           <button onClick={() => setBriefing(true)}>
             <BookOpen size={17} />
             세계관 안내
@@ -125,7 +129,7 @@ export function ProjectRoot() {
             <span>{profile.displayName.slice(0, 1).toUpperCase()}</span>
             <div>
               <strong>{profile.displayName}</strong>
-              <small>Analyst · Workspace 01</small>
+              <small>조사관 · 워크스테이션</small>
             </div>
             <i />
           </div>
@@ -135,8 +139,6 @@ export function ProjectRoot() {
         <header className="root-toolbar">
           <span>
             {section === 'profile' ? '내 프로필' : current?.name}
-            <span>/</span>
-            {section === 'profile' ? 'ACCOUNT' : current?.label}
           </span>
           <span>
             <ShieldCheck size={14} /> 내부 워크스페이스
@@ -147,16 +149,17 @@ export function ProjectRoot() {
             <>
               <div className="root-page-heading">
                 <div>
-                  <span className="root-overline">GETTING STARTED</span>
-                  <h1>환영합니다, {profile.displayName}님.</h1>
-                  <p>모든 조사는 작은 연결에서 시작됩니다.</p>
+                  <span className="root-overline">조사 워크스페이스</span>
+                  <h1>내 임무</h1>
+                  <p>진행 중인 조사와 이전에 제출한 판단을 한곳에서 확인하세요.</p>
                 </div>
                 <span className="root-status">
                   <i />
-                  업무 준비 완료
+                  {profile.gameProgress.stage === 5 ? '조사 완료' : profile.gameProgress.pendingStage ? '다음 임무 준비 중' : '조사 진행 중'}
                 </span>
               </div>
               <MissionCard />
+              <MissionHistory />
               <h3 className="root-section-title">당신의 조사 도구</h3>
               <div className="root-tools">
                 {(
@@ -176,6 +179,11 @@ export function ProjectRoot() {
                       title: '자료 정리하기',
                       copy: 'Dolphin에서 조사 자료를 관리하세요.',
                     },
+                    {
+                      id: 'editor',
+                      title: '메모 남기기',
+                      copy: 'KWrite에 관찰과 판단을 기록하세요.',
+                    },
                   ] as const
                 ).map((a) => (
                   <button key={a.id} onClick={() => openApp(a.id)}>
@@ -186,43 +194,20 @@ export function ProjectRoot() {
                   </button>
                 ))}
               </div>
-              <aside className="root-note-tip">
-                <Lightbulb size={20} />
-                <div>
-                  <strong>Tip · 자유롭게 메모하세요</strong>
-                  <p>
-                    KWrite에서 텍스트 파일을 만들어 생각이나 발견한 내용을 아무렇게나 적어 두세요.
-                    문서나 바탕화면에 저장한 메모는 Dolphin에서 다시 열 수 있습니다.
-                  </p>
-                  <button className="root-btn" onClick={() => openApp('editor')}>
-                    텍스트 편집기 열기 <ArrowUpRight size={14} />
-                  </button>
-                </div>
-              </aside>
-              <button className="root-orientation-card" onClick={() => setBriefing(true)}>
-                <BookOpen size={21} />
-                <span>
-                  <strong>PROJECT ROOT에 처음 오셨나요?</strong>
-                  <small>세계관과 조사관의 역할을 다시 살펴보세요.</small>
-                </span>
-                <span>
-                  안내 다시 보기 <ArrowUpRight size={15} />
-                </span>
-              </button>
             </>
-          ) : section === 'history' ? (
-            <MissionHistory />
           ) : section === 'hint' ? (
             <MissionHints key={profile.gameProgress.stage} />
+          ) : section === 'records' ? (
+            <MissionRecords />
           ) : section === 'profile' ? (
             <>
-              <span className="root-overline">YOUR IDENTITY</span>
+              <span className="root-overline">내 계정</span>
               <h1>내 프로필</h1>
               <p className="root-description">PROJECT ROOT에서 사용하는 조사관 정보입니다.</p>
               <div className="root-profile-card">
                 <div className="root-avatar">{profile.displayName.slice(0, 1).toUpperCase()}</div>
                 <h2>{profile.displayName}</h2>
-                <span>ANALYST</span>
+                <span>조사관</span>
               </div>
               <form className="root-profile-form" onSubmit={saveProfile}>
                 <label>
@@ -270,12 +255,10 @@ export function ProjectRoot() {
                 </button>
               </div>
             </>
-          ) : (
-            <MissionRecords kind={section} />
-          )}
+          ) : null}
         </div>
         <footer className="root-footer">
-          <span>PROJECT ROOT · INTERNAL</span>
+          <span>PROJECT ROOT · 조사 워크스페이스</span>
           <span>
             연결됨 <i />
           </span>

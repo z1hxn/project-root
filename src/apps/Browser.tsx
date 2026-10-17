@@ -68,6 +68,8 @@ export function Browser({ isActive = true }: { isActive?: boolean }) {
     files,
     setFiles,
     recordVisit,
+    browserNavigation,
+    clearBrowserNavigation,
     notify: workspaceNotify,
   } = useWorkspace();
   const notify = (message: string) => workspaceNotify(message, 'browser');
@@ -183,9 +185,11 @@ export function Browser({ isActive = true }: { isActive?: boolean }) {
   useEffect(() => {
     if (!isActive) return;
     const shortcut = (event: KeyboardEvent) => {
-      if (!event.altKey || !event.shiftKey || event.ctrlKey || event.metaKey) return;
       const key = event.key.toLowerCase();
-      if (!['t', 'w', 'l', 'f', 'b'].includes(key)) return;
+      const standard = (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey;
+      const fallback = event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey;
+      if (!(standard && ['t', 'w', 'l', 'f', 'r', 'd'].includes(key)) &&
+          !(fallback && ['t', 'w', 'l', 'f', 'b'].includes(key))) return;
       event.preventDefault();
       event.stopPropagation();
       if (key === 't') newTab();
@@ -195,11 +199,17 @@ export function Browser({ isActive = true }: { isActive?: boolean }) {
         address.current?.select();
       }
       if (key === 'f') setFind(true);
-      if (key === 'b') bookmark();
+      if (key === 'r') refresh();
+      if (key === 'b' || key === 'd') bookmark();
     };
     document.addEventListener('keydown', shortcut, true);
     return () => document.removeEventListener('keydown', shortcut, true);
   });
+  useEffect(() => {
+    if (!browserNavigation) return;
+    navigate(browserNavigation.url);
+    clearBrowserNavigation(browserNavigation.requestId);
+  }, [browserNavigation, clearBrowserNavigation]);
   function newTab(priv = false) {
     const id = ++seq.current;
     setTabs((t) => [
@@ -514,9 +524,9 @@ export function Browser({ isActive = true }: { isActive?: boolean }) {
       {menu && (
         <div className="firefox-menu">
           <button onClick={() => newTab()}>
-            <Plus size={17} />새 탭<kbd>Alt+Shift+T</kbd>
+            <Plus size={17} />새 탭<kbd>Ctrl/⌘+T</kbd>
           </button>
-          <small className="firefox-shortcut-note">게임 Firefox 단축키: Alt+Shift+T 새 탭 · W 닫기 · L 주소창 · F 찾기 · B 북마크</small>
+          <small className="firefox-shortcut-note">Ctrl/⌘+T 새 탭 · W 닫기 · L 주소창 · F 찾기 · R 새로고침 · D 북마크<br />브라우저가 단축키를 가져가면 Alt+Shift+T / W / L / F / B를 사용하세요.</small>
           <button onClick={() => newTab(true)}>
             <Shield size={17} />새 사생활 보호 탭
           </button>

@@ -29,6 +29,7 @@ import {
   moveToTrash,
   trashPath,
   pasteFiles,
+  isProtectedDesktopApp,
   type GameFile,
 } from '@/game/filesystem';
 import { FileIcon, fileApp } from '@/apps/Files';
@@ -240,7 +241,7 @@ export function DesktopSurface({ onRunner }: { onRunner: () => void }) {
           });
         }}
         onKeyDown={(e) => {
-          if (e.key === 'F2' && current && !current.path.startsWith('$')) {
+          if (e.key === 'F2' && current && !current.path.startsWith('$') && !isProtectedDesktopApp(current.path)) {
             e.preventDefault();
             begin('rename');
           }
@@ -446,7 +447,7 @@ export function DesktopSurface({ onRunner }: { onRunner: () => void }) {
                 복사<kbd>Ctrl+C</kbd>
               </button>
               <button
-                disabled={current.path.startsWith('$')}
+                disabled={selected.some((path) => path.startsWith('$') || isProtectedDesktopApp(path))}
                 onClick={() => {
                   setClipboard({ paths: selected.filter((p) => !p.startsWith('$')), cut: true });
                   setMenu(null);
@@ -455,11 +456,11 @@ export function DesktopSurface({ onRunner }: { onRunner: () => void }) {
                 <Scissors size={15} />
                 잘라내기<kbd>Ctrl+X</kbd>
               </button>
-              <button disabled={current.path.startsWith('$')} onClick={() => begin('rename')}>
+              <button disabled={current.path.startsWith('$') || isProtectedDesktopApp(current.path)} onClick={() => begin('rename')}>
                 <Edit3 size={15} />
                 이름 바꾸기…<kbd>F2</kbd>
               </button>
-              <button disabled={current.path.startsWith('$')} onClick={remove}>
+              <button disabled={selected.some((path) => path.startsWith('$') || isProtectedDesktopApp(path))} onClick={remove}>
                 <Trash2 size={15} />
                 휴지통으로 이동<kbd>Delete</kbd>
               </button>

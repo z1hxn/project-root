@@ -108,6 +108,11 @@ export function TextEditor({ windowId }: { windowId: string }) {
     <div
       className="kwrite"
       onKeyDown={(e) => {
+        if (e.key === 'F10') {
+          e.preventDefault();
+          setWrap((current) => !current);
+          return;
+        }
         if (e.ctrlKey || e.metaKey) {
           const key = e.key.toLowerCase();
           if (['s', 'o', 'n', 'f'].includes(key)) {
@@ -151,7 +156,8 @@ export function TextEditor({ windowId }: { windowId: string }) {
           ],
           보기: [
             {
-              label: wrap ? '자동 줄 바꿈 끄기' : '자동 줄 바꿈 켜기',
+              label: wrap ? '동적 줄 바꿈 끄기' : '동적 줄 바꿈 켜기',
+              shortcut: 'F10',
               action: () => setWrap(!wrap),
             },
             { label: '글자 확대', action: () => setSize(Math.min(24, size + 1)) },
@@ -173,7 +179,7 @@ export function TextEditor({ windowId }: { windowId: string }) {
         <ToolButton label="텍스트 찾기" onClick={() => setFind(!find)}>
           <Search size={19} />
         </ToolButton>
-        <ToolButton label="자동 줄 바꿈" active={wrap} onClick={() => setWrap(!wrap)}>
+        <ToolButton label="동적 줄 바꿈 (F10)" active={wrap} onClick={() => setWrap(!wrap)}>
           <WrapText size={21} />
         </ToolButton>
         <span className="kwrite-path">{doc.path || '새 문서'}</span>
@@ -226,7 +232,7 @@ export function TextEditor({ windowId }: { windowId: string }) {
           aria-label="파일 내용"
           spellCheck={false}
           wrap={wrap ? 'soft' : 'off'}
-          style={{ fontSize: size }}
+          style={{ fontSize: size, overflowX: wrap ? 'hidden' : 'auto' }}
           value={doc.text}
           onChange={(e) => {
             setDoc({ ...doc, text: e.target.value });

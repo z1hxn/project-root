@@ -21,12 +21,17 @@ export interface WorkspaceContextValue {
   settings: OSSettings;
   saveSettings: (settings: OSSettings) => Promise<void>;
   openApp: (id: AppId) => void;
+  browserNavigation: { url: string; requestId: number } | null;
+  openBrowserUrl: (url: string) => void;
+  clearBrowserNavigation: (requestId: number) => void;
   sessionAction: (action: SessionAction) => void;
+  fullscreenActive: boolean;
+  toggleFullscreen: () => Promise<void>;
   files: GameFile[];
   setFiles: Dispatch<SetStateAction<GameFile[]>>;
   notify: (message: string, source?: AppId | 'plasma') => void;
   recordVisit: (url: string) => Promise<void>;
-  rollbackMission: (stage: 1 | 2 | 3) => Promise<void>;
+  rollbackMission: (stage: 1 | 2 | 3 | 4) => Promise<void>;
   submitLinkReport: (report: LinkReport) => Promise<void>;
   submitBuildReport: (report: BuildReport) => Promise<void>;
   submitReport: (report: IncidentReport) => Promise<void>;

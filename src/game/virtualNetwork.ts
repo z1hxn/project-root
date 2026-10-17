@@ -6,10 +6,15 @@ export const NETWORK_ROOT = '/network';
 export const LOG_SHARE = 'dev-files.root.internal';
 const stamp = '2026-09-26T00:00:00.000Z';
 export const logFiles: Record<string, string> = content.logs;
-export const documentationFiles: Record<string, string> = {
-  ...content.Documentation,
-  '03_Network/SMB-Access.md': `${content.Documentation['03_Network/SMB-Access.md']}\nMISSION 003의 승인된 읽기 전용 logs 공유 예시:\n\n    sudo apt install smbclient\n    smbclient //dev-files.root.internal/logs -N\n\n접속한 smb 프롬프트에서 ls, cd auth, get auth-2026-09-24.log처럼 파일을 열람하고 Downloads로 가져올 수 있다. 같은 방식으로 09/26 인증 기록과 build 기록을 비교한다. 이 명령은 PROJECT ROOT의 가상 내부망에서만 동작한다.\n`,
+export const publicShareFiles: Record<string, string> = {
+  'README.txt': 'PROJECT ROOT 개발팀 공용 공유 영역\n\n팀 간 공개 가능한 작업 자료를 교환하는 공간입니다. 운영 기록은 이 공유에 보관하지 않습니다.\n',
+  'team/Release-Notes.txt': '2026-09 개발 서비스 정기 배포 안내\n\n공용 자료와 서비스 변경 공지는 문서 배포 영역에서 확인하세요.\n',
 };
+export const documentationFiles: Record<string, string> = content.Documentation;
+export const INTERNAL_SERVICES_ROOT = `${NETWORK_ROOT}/PROJECT ROOT/Internal Services`;
+export function isDolphinSmbPath(path: string) {
+  return path === INTERNAL_SERVICES_ROOT || path.startsWith(INTERNAL_SERVICES_ROOT + '/');
+}
 export function virtualNetworkFiles(): GameFile[] {
   const dirs = new Set<string>([
     NETWORK_ROOT,
@@ -19,13 +24,6 @@ export function virtualNetworkFiles(): GameFile[] {
     CASE_EXPORT_ROOT,
     `${NETWORK_ROOT}/PROJECT ROOT/Shared`,
     `${NETWORK_ROOT}/PROJECT ROOT/Shared/Team`,
-    `${NETWORK_ROOT}/PROJECT ROOT/Internal Services`,
-    ...['docs.root.internal', LOG_SHARE, 'build.root.internal', 'archive.root.internal'].map(
-      (host) => `${NETWORK_ROOT}/PROJECT ROOT/Internal Services/${host}`,
-    ),
-    ...['public', 'projects', 'logs'].map(
-      (share) => `${NETWORK_ROOT}/PROJECT ROOT/Internal Services/${LOG_SHARE}/${share}`,
-    ),
   ]);
   const files: GameFile[] = [];
   for (const [relative, text] of Object.entries(documentationFiles)) {
@@ -53,41 +51,40 @@ export function virtualNetworkFiles(): GameFile[] {
     content: '월요일 10:00 팀 정기 점검\n금요일 17:00 주간 기록 정리\n',
     modified: stamp,
   });
-  files.push({
-    path: `${NETWORK_ROOT}/PROJECT ROOT/Internal Services/${LOG_SHARE}/public/README.txt`,
-    kind: 'file',
-    content: '개발 파일 저장소의 공개 공유 영역입니다.\n',
-    modified: stamp,
-  });
-  files.push({
-    path: `${NETWORK_ROOT}/PROJECT ROOT/Internal Services/${LOG_SHARE}/projects/Access.txt`,
-    kind: 'file',
-    content: '현재 분석가 계정은 projects 공유에 접근할 수 없습니다.\n',
-    modified: stamp,
-  });
-  files.push({
-    path: `${NETWORK_ROOT}/PROJECT ROOT/Internal Services/${LOG_SHARE}/logs/Access.txt`,
-    kind: 'file',
-    content:
-      '사건 분석가에게 읽기 전용 SMB 권한이 부여되었습니다. 로그 열람 및 다운로드에는 Samba client utilities를 사용하세요.\n',
-    modified: stamp,
-  });
   return [
     ...[...dirs].map((path): GameFile => ({ path, kind: 'directory', modified: stamp })),
     ...files,
   ];
 }
-export function smbDirectory(path: string): string[] {
-  const normalized = path.replace(/^\/+|\/+$/g, '');
+export function smbDirectory(path: string, shareFiles: Record<string, string> = logFiles): string[] {
+  const normalized = path.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
   const names = new Set<string>();
-  for (const file of Object.keys(logFiles)) {
+  for (const file of Object.keys(shareFiles)) {
     if (normalized && !file.startsWith(normalized + '/')) continue;
     const tail = normalized ? file.slice(normalized.length + 1) : file;
     if (tail) names.add(tail.split('/')[0] + (tail.includes('/') ? '/' : ''));
   }
-  if (!normalized) {
-    names.add('deploy/');
-    names.add('archive/');
-  }
   return [...names].sort();
+}
+export function smbListing(path: string, mask = '*', shareFiles: Record<string, string> = logFiles) {
+  const normalized = path.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+  const names = smbDirectory(normalized, shareFiles).filter((name) => {
+    const escaped = mask.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
+    return new RegExp(`^${escaped}$`, 'i').test(name.replace(/\/$/, ''));
+  });
+  const folder = (name: string, directory: boolean, size = 0) =>
+    `  ${name.padEnd(35)} ${directory ? 'D' : 'A'} ${String(size).padStart(8)}  Sat Sep 26 00:00:00 2026`;
+  return [
+    ...(mask === '*' ? [folder('.', true), folder('..', true)] : []),
+    ...names.map((name) => {
+      const directory = name.endsWith('/');
+      const key = normalized ? `${normalized}/${name}` : name;
+      return folder(name.replace(/\/$/, ''), directory, directory ? 0 : new TextEncoder().encode(shareFiles[key] || '').length);
+    }),
+    '',
+    '                1048576 blocks of size 1024. 786432 blocks available',
+  ].join('\n');
+}
+export function smbTransferMessage(path: string, localName: string, shareFiles: Record<string, string> = logFiles) {
+  return `getting file ${path.replace(/\//g, '\\')} of size ${new TextEncoder().encode(shareFiles[path]).length} as ${localName} (512.0 kb/s) (average 512.0 kb/s)`;
 }
