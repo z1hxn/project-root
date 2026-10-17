@@ -10,17 +10,13 @@ Node.js 22.17 이상이 필요합니다.
 npm ci
 cp .env.example .env
 npm run db:generate
-npm run db:start
-```
-
-DB 터미널을 유지하고 다른 터미널에서 실행합니다.
-
-```sh
 npm run db:migrate
 npm run dev
 ```
 
-기본 주소: http://127.0.0.1:3000. 기존 개발 서버가 있으면 해당 서버를 사용합니다. DB는 `127.0.0.1:54329`에만 바인딩하고 `.data/postgres`에 영구 저장합니다. `.env.example`의 DB 자격정보는 로컬 개발 전용입니다. 자체 PostgreSQL/Supabase PostgreSQL로 옮길 때는 `DATABASE_URL`을 변경하고 동일한 마이그레이션을 적용합니다.
+기본 주소: http://127.0.0.1:3000. `.env`에는 Supabase 대시보드 **Connect → ORM → Prisma**에서 받은 두 연결 문자열을 입력합니다. `DATABASE_URL`은 앱용 Transaction pooler, `DIRECT_URL`은 Prisma 마이그레이션용 Session pooler입니다. 비밀번호와 실제 연결 문자열이 들어간 `.env`는 Git에서 제외됩니다. Supabase PostgreSQL에 기존 계정과 진행 데이터를 이전했으며 로컬 DB 서버는 더 이상 실행할 필요가 없습니다.
+
+계정·세션 테이블은 서버의 Prisma 연결로만 접근합니다. 해당 테이블에는 RLS를 켜고 Supabase Data API 역할의 권한을 회수했습니다.
 
 ## 최초 실행과 로그인
 
